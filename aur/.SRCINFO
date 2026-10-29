@@ -21,7 +21,7 @@ pkgbase = concentra
 	optdepends = chromium: YouTube kanal izin listesi eklentisi
 	optdepends = firefox: site engelleri (YouTube eklentisi yok)
 	backup = etc/concentra.conf
-	source = concentra::git+https://github.com/Noarex/concentra.git#tag=v1.0.1
+	source = concentra::git+https://github.com/Noarex/concentra.git#commit=a04c99be930cbcad4b76e543f3b1d37db4a70f7c
 	source = odak-yt-1.0.0.crx::https://github.com/Noarex/concentra/releases/download/v1.0.0/odak-yt.crx
 	sha256sums = SKIP
 	sha256sums = 9852b8bcdce5b43ef37684de8167e02d50a76d32ffc291bd20d994e788dc3347
