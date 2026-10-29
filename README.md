@@ -1,0 +1,58 @@
+# concentra
+
+Linux (Arch) için planlı odak modu. Belirlediğin saatlerde dikkat dağıtan siteleri, uygulamaları ve YouTube'u engeller. Engeller süre dolmadan kalkmaz, bilgisayarı yeniden başlatsan da geri gelir.
+
+Terminal komutu: `odak` (ya da `concentra`).
+
+## Ne engelliyor
+
+- **Siteler:** tarayıcı politikası (Brave, Chromium, Chrome, Firefox) ve `/etc/hosts` ile.
+- **YouTube:** abonelik akışı ve **kanal izin listesi**. Odak sırasında sadece izin verilen kanalların videoları oynar, Shorts kapalıdır. Bu iş tarayıcıya politika ile zorla kurulan, kapatılamayan bir eklentiyle yapılır (Chromium tabanlı tarayıcılar).
+- **Uygulamalar:** Discord gibi uygulamalar odak sırasında kapatılır.
+- **Ağ:** istersen Tailscale trafiği ya da belirli IP adresleri (`nftables`).
+- Engel her başladığında tarayıcı kapatılır. Açık kalmış sekmeler yeniden açılınca engel sayfasına düşer.
+
+## Komutlar
+
+| Komut | Ne yapar |
+|---|---|
+| `odak 2` / `odak 1.5` / `odak 45dk` | Tek seferlik odak (en fazla 24 saat) |
+| `odak hafta` | Pazartesi-Cuma otomatik odak (varsayılan 07:30-20:00) |
+| `odak full` | Her gün otomatik odak |
+| `odak plan kapat` | Planı bekleme süresi (varsayılan 3 gün) sonunda kapatır |
+| `odak plan ara <gün>` | Bekleme süresinden sonra planı <gün> gün duraklatır, sonra plan kendiliğinden devam eder |
+| `odak plan vazgec` | Bekleyen talebi geri alır |
+| `odak plan devam` | Duraklamayı hemen bitirir |
+| `odak mola` | 15 dk mola. Molanın süresi bitişe eklenir |
+| `odak kanal` | YouTube izin listesi |
+| `odak kanal ekle\|sil @kanal` | Listeyi değiştirir (sadece odak dışında) |
+| `odak durum` | Durum |
+| `odak yardim` | Komut listesi |
+
+Planı sıkılaştırmak (hafta → full, `vazgec`, `devam`) anında uygulanır. Gevşetmek (kapat, ara, full → hafta) bekleme süresi gerektirir.
+
+## Ayarlar
+
+`/etc/concentra.conf`: plan saatleri, mola süresi, bekleme süresi, engellenen siteler ve uygulamalar, ağ engelleri. Kendi eklemelerini `/etc/concentra.d/*.conf` dosyalarına da yazabilirsin. Örnek:
+
+```bash
+# /etc/concentra.d/benim.conf
+TAILSCALE_ENGELLE=evet
+UYGULAMALAR+=(moonlight)
+```
+
+Durum bilgisi `/var/lib/concentra` klasöründe tutulur.
+
+## Kurulum
+
+```
+yay -S concentra
+```
+
+## Sınırlar
+
+Root yetkin varsa her engeli elle kaldırabilirsin. concentra seni engellemiyor, anlık hevesle vazgeçmeyi zorlaştırıyor.
+
+## Eklenti
+
+`eklenti/` klasörü YouTube eklentisinin kaynak kodu. İmzalı `.crx` dosyası GitHub Releases'te yayınlanıyor. İmza anahtarı repoda bulunmuyor.

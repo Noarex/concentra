@@ -1,0 +1,29 @@
+pkgbase = concentra
+	pkgdesc = Planli odak modu: siteleri, uygulamalari ve YouTube'u (kanal izin listesiyle) engeller
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Noarex/concentra
+	install = concentra.install
+	arch = any
+	license = MIT
+	makedepends = git
+	depends = bash
+	depends = sudo
+	depends = nftables
+	depends = e2fsprogs
+	depends = procps-ng
+	depends = gawk
+	depends = sed
+	depends = grep
+	depends = coreutils
+	depends = systemd
+	optdepends = brave-bin: YouTube kanal izin listesi eklentisi
+	optdepends = chromium: YouTube kanal izin listesi eklentisi
+	optdepends = firefox: site engelleri (YouTube eklentisi yok)
+	backup = etc/concentra.conf
+	source = concentra::git+https://github.com/Noarex/concentra.git#tag=v1.0.0
+	source = odak-yt-1.0.0.crx::https://github.com/Noarex/concentra/releases/download/v1.0.0/odak-yt.crx
+	sha256sums = SKIP
+	sha256sums = 9852b8bcdce5b43ef37684de8167e02d50a76d32ffc291bd20d994e788dc3347
+
+pkgname = concentra

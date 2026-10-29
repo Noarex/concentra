@@ -1,0 +1,502 @@
+#!/usr/bin/env bash
+# concentra / odak - planli odak modu
+# Siteleri, uygulamalari ve YouTube'u (kanal izin listesiyle) belirli saatlerde engeller.
+# Komutlar icin: odak yardim
+# Ayarlar: /etc/concentra.conf ve /etc/concentra.d/*.conf
+
+set -uo pipefail
+SURUM="1.0.0"
+
+# ---------- varsayilan ayarlar (/etc/concentra.conf bunlari degistirir) ----------
+PLAN_BAS="07:30"
+PLAN_BIT="20:00"
+MOLA_DK=15
+BEKLEME_GUN=3
+ARA_MAX_GUN=14
+
+SITELER=(twitch.tv kick.com x.com twitter.com instagram.com discord.com discord.gg discordapp.com)
+HOSTS_ADLAR=(twitch.tv www.twitch.tv m.twitch.tv kick.com www.kick.com x.com www.x.com
+             twitter.com www.twitter.com mobile.twitter.com instagram.com www.instagram.com
+             discord.com www.discord.com ptb.discord.com canary.discord.com gateway.discord.gg
+             discord.gg discordapp.com cdn.discordapp.com media.discordapp.net)
+YT_ABONELIK_ENGELLE=evet
+UYGULAMALAR=(Discord DiscordPTB DiscordCanary discord vesktop legcord webcord)
+TARAYICILAR=(brave chromium chrome firefox)
+TAILSCALE_ENGELLE=hayir
+ENGELLI_IPLER=()
+VARSAYILAN_KANALLAR=(@ProfessorLeonard @TheOrganicChemistryTutor @3blue1brown @DrTrefor
+                     @kristakingmath @patrickjmt @khanacademy @mitocw)
+
+CONF=/etc/concentra.conf
+CONF_DIR=/etc/concentra.d
+# shellcheck disable=SC1090
+[ -f "$CONF" ] && . "$CONF"
+if [ -d "$CONF_DIR" ]; then for _c in "$CONF_DIR"/*.conf; do [ -f "$_c" ] && . "$_c"; done; fi
+
+# Okuma amacli komutlar root istemez, gerisi sudo ile kendini yeniden calistirir
+case "${1:-}" in
+  ""|durum|yardim|help|-h|--help|surum|--version) ;;
+  kanal) [ -n "${2:-}" ] && [ "$EUID" -ne 0 ] && exec sudo "$0" "$@" ;;
+  *) [ "$EUID" -eq 0 ] || exec sudo "$0" "$@" ;;
+esac
+
+# ---------- sabit yollar ----------
+DIR=/var/lib/concentra
+BITIS="$DIR/bitis"      # tek seferlik odagin bitisi (epoch)
+MOLA="$DIR/mola"        # molanin bitisi (epoch)
+PLAN="$DIR/plan"        # "hafta" ya da "full"
+TALEP="$DIR/talep"      # bekleyen talep: "<kapat|ara|hafta> <yururluk epoch> [gun]"
+ARA="$DIR/ara"          # plan duraklamasinin bitisi (epoch)
+KANALLAR="$DIR/kanallar"
+ENGEL_ISARET="$DIR/engel-acik"
+FIREFOX_ISARET="$DIR/firefox-yazildi"
+MOLA_SN=$(( MOLA_DK * 60 ))
+ZAMANLAYICI=concentra.timer
+
+YT_YOL="youtube.com/feed/subscriptions"
+HOSTS=/etc/hosts
+CHROMIUM_DIRLER=(/etc/chromium/policies/managed /etc/brave/policies/managed /etc/opt/chrome/policies/managed)
+FIREFOX_DIR=/etc/firefox/policies
+FIREFOX_DOSYA="$FIREFOX_DIR/policies.json"
+
+# YouTube kanal izin listesi eklentisi (politika ile zorla kurulur, kapatilamaz)
+EKLENTI_ID="mfekpjflnlikpeejlfcilhhdeonchfgh"
+EKLENTI_DIR=/usr/share/concentra
+
+# ---------- yardimcilar ----------
+kilitle()   { chattr +i "$1" 2>/dev/null || true; }
+kilit_ac()  { [ -e "$1" ] && chattr -i "$1" 2>/dev/null || true; }
+yaz()       { mkdir -p "$DIR"; kilit_ac "$2"; echo "$1" > "$2"; kilitle "$2"; }
+dosya_sil() { kilit_ac "$1"; rm -f "$1"; }
+saat()      { date -d @"$1" '+%H:%M'; }
+tarih()     { date -d @"$1" '+%d.%m %H:%M'; }
+simdi()     { date +%s; }
+onay()      { local c; read -r -p "Onayliyor musun? (evet yaz): " c; [ "$c" = "evet" ] || { echo "Iptal edildi."; exit 0; }; }
+evet_mi()   { case "${1,,}" in evet|yes|true|1) return 0;; *) return 1;; esac; }
+
+ek_dosya()  { echo "$DIR/ek-$(date +%F)"; }   # bugun alinan molalarin toplami
+plan_modu() { [ -f "$PLAN" ] && cat "$PLAN" || echo ""; }
+plan_adi()  { case "$1" in hafta) echo "hafta ici (Pzt-Cum)";; full) echo "her gun";; esac; }
+
+plan_bitis_bugun() {
+  local b ek=0
+  b=$(date -d "today $PLAN_BIT" +%s)
+  [ -f "$(ek_dosya)" ] && ek=$(cat "$(ek_dosya)")
+  echo $(( b + ek ))
+}
+
+duraklatildi() { [ -f "$ARA" ] && [ "$(simdi)" -lt "$(cat "$ARA")" ]; }
+elle_aktif()   { [ -f "$BITIS" ] && [ "$(simdi)" -lt "$(cat "$BITIS")" ]; }
+molada()       { [ -f "$MOLA" ] && [ "$(simdi)" -lt "$(cat "$MOLA")" ]; }
+
+plan_aktif() {
+  local mod n
+  mod=$(plan_modu); [ -n "$mod" ] || return 1
+  duraklatildi && return 1
+  [ "$mod" = full ] || [ "$(date +%u)" -le 5 ] || return 1
+  n=$(simdi)
+  [ "$n" -ge "$(date -d "today $PLAN_BAS" +%s)" ] && [ "$n" -lt "$(plan_bitis_bugun)" ]
+}
+aktif() { elle_aktif || plan_aktif; }
+
+engel_listesi() {
+  printf '  - %s\n' "${SITELER[@]}"
+  evet_mi "$YT_ABONELIK_ENGELLE" && echo "  - $YT_YOL"
+  [ -f "$EKLENTI_DIR/odak-yt.crx" ] && echo "  - YouTube: izin listesi disindaki kanallar ve Shorts"
+  evet_mi "$TAILSCALE_ENGELLE" && echo "  - Tailscale uzerinden butun baglantilar"
+  [ "${#ENGELLI_IPLER[@]}" -gt 0 ] && echo "  - Su adreslere baglanti: ${ENGELLI_IPLER[*]}"
+  [ "${#UYGULAMALAR[@]}" -gt 0 ] && echo "  - Kapatilan uygulamalar: ${UYGULAMALAR[*]}"
+  return 0
+}
+
+# ---------- YouTube eklentisi ----------
+kanal_listesi() {
+  if [ -f "$KANALLAR" ]; then grep -v '^[[:space:]]*#' "$KANALLAR" | grep -v '^[[:space:]]*$'
+  else printf '%s\n' "${VARSAYILAN_KANALLAR[@]}"; fi
+}
+
+# aktif=true: sadece izinli kanallar oynar; false: eklenti bekler. Dosya hep yerinde kalir,
+# yoksa tarayici eklentiyi kaldirir. Icerik degismediyse yazmaz.
+eklenti_yaz() {
+  local durum="$1" kl="" k d f icerik
+  [ -f "$EKLENTI_DIR/odak-yt.crx" ] || return 0
+  while IFS= read -r k; do kl+="\"$k\","; done < <(kanal_listesi)
+  icerik=$(printf '{ "ExtensionInstallForcelist": ["%s;file://%s/updates.xml"], "3rdparty": { "extensions": { "%s": { "aktif": %s, "kanallar": [%s] } } } }' \
+    "$EKLENTI_ID" "$EKLENTI_DIR" "$EKLENTI_ID" "$durum" "${kl%,}")
+  for d in "${CHROMIUM_DIRLER[@]}"; do
+    mkdir -p "$d"; f="$d/odak-eklenti.json"
+    [ -f "$f" ] && [ "$(cat "$f")" = "$icerik" ] && continue
+    kilit_ac "$f"; echo "$icerik" > "$f"; kilitle "$f"
+  done
+}
+
+kanal() {
+  local islem="${1:-}" k="${2:-}"
+  if [ -z "$islem" ]; then echo "YouTube izin listesi:"; kanal_listesi | sed 's/^/  /'; return; fi
+  [ "$islem" = ekle ] || [ "$islem" = sil ] || { echo "Kullanim: odak kanal | odak kanal ekle @kanal | odak kanal sil @kanal"; exit 1; }
+  if aktif; then echo "Odak sirasinda (mola dahil) izin listesi degistirilemez."; exit 1; fi
+  k=$(echo "$k" | sed -E 's#^https?://(www\.|m\.)?youtube\.com/##; s#[/?].*$##')
+  [[ "$k" =~ ^@[A-Za-z0-9._-]{3,30}$ ]] || { echo "Kanali @adi seklinde yaz (ornek: odak kanal ekle @3blue1brown)."; exit 1; }
+  kanallari_hazirla
+  kilit_ac "$KANALLAR"
+  if [ "$islem" = ekle ]; then
+    if grep -qixF "$k" "$KANALLAR"; then echo "Zaten listede: $k"; else echo "$k" >> "$KANALLAR"; echo "Eklendi: $k"; fi
+  else
+    if grep -qixF "$k" "$KANALLAR"; then grep -vixF "$k" "$KANALLAR" > "$KANALLAR.yeni"; mv -f "$KANALLAR.yeni" "$KANALLAR"; echo "Silindi: $k"
+    else echo "Listede yok: $k"; fi
+  fi
+  kilitle "$KANALLAR"
+  eklenti_yaz false
+}
+
+kanallari_hazirla() {
+  mkdir -p "$DIR"
+  [ -f "$KANALLAR" ] && return
+  { echo "# odak kanal ekle/sil ile duzenle"; printf '%s\n' "${VARSAYILAN_KANALLAR[@]}"; } > "$KANALLAR"
+  kilitle "$KANALLAR"
+}
+
+# ---------- engeller ----------
+nft_kur() {
+  local ip
+  if ! evet_mi "$TAILSCALE_ENGELLE" && [ "${#ENGELLI_IPLER[@]}" -eq 0 ]; then
+    nft delete table inet odak 2>/dev/null || true; return
+  fi
+  nft list table inet odak >/dev/null 2>&1 && return
+  nft add table inet odak
+  nft add chain inet odak cikis '{ type filter hook output priority 0; policy accept; }'
+  evet_mi "$TAILSCALE_ENGELLE" && nft add rule inet odak cikis oifname "tailscale0" drop
+  for ip in "${ENGELLI_IPLER[@]}"; do
+    if [[ "$ip" == *:* ]]; then nft add rule inet odak cikis ip6 daddr "$ip" drop
+    else nft add rule inet odak cikis ip daddr "$ip" drop; fi
+  done
+}
+
+uygula() {
+  local liste="" ff="" s d f h
+
+  # Chromium / Brave / Chrome (degisikligi kendileri fark eder)
+  for s in "${SITELER[@]}"; do liste+="\"$s\","; done
+  evet_mi "$YT_ABONELIK_ENGELLE" && liste+="\"$YT_YOL\","
+  liste="[${liste%,}]"
+  for d in "${CHROMIUM_DIRLER[@]}"; do
+    mkdir -p "$d"; f="$d/odak.json"
+    kilit_ac "$f"
+    printf '{ "URLBlocklist": %s }\n' "$liste" > "$f"
+    kilitle "$f"
+  done
+
+  # Firefox (tarayici yeniden acilinca devreye girer)
+  for s in "${SITELER[@]}"; do ff+="\"*://*.$s/*\","; done
+  evet_mi "$YT_ABONELIK_ENGELLE" && ff+="\"*://*.youtube.com/feed/subscriptions*\","
+  mkdir -p "$FIREFOX_DIR"
+  if [ -f "$FIREFOX_DOSYA" ] && [ ! -f "$FIREFOX_ISARET" ] && [ ! -f "$FIREFOX_DOSYA.odak-yedek" ]; then
+    cp "$FIREFOX_DOSYA" "$FIREFOX_DOSYA.odak-yedek"
+  fi
+  kilit_ac "$FIREFOX_DOSYA"
+  printf '{ "policies": { "WebsiteFilter": { "Block": [%s] } } }\n' "${ff%,}" > "$FIREFOX_DOSYA"
+  kilitle "$FIREFOX_DOSYA"
+  touch "$FIREFOX_ISARET"
+
+  # /etc/hosts: her tarayicida aninda calisir
+  if [ "${#HOSTS_ADLAR[@]}" -gt 0 ] && ! grep -q '^# odak-basla' "$HOSTS"; then
+    {
+      echo "# odak-basla"
+      for h in "${HOSTS_ADLAR[@]}"; do echo "0.0.0.0 $h"; echo ":: $h"; done
+      echo "# odak-bitis"
+    } >> "$HOSTS"
+  fi
+
+  # Engel yeni devreye giriyorsa tarayicilari kapat (sekmeler yeniden acilinca engellenir)
+  if [ ! -f "$ENGEL_ISARET" ]; then
+    mkdir -p "$DIR"; touch "$ENGEL_ISARET"
+    for h in "${TARAYICILAR[@]}"; do pkill -x "$h" 2>/dev/null || true; done
+  fi
+
+  eklenti_yaz true
+  for h in "${UYGULAMALAR[@]}"; do pkill -x "$h" 2>/dev/null || true; done
+  nft_kur
+}
+
+engelleri_kaldir() {
+  local d f
+  rm -f "$ENGEL_ISARET"
+  eklenti_yaz false
+  for d in "${CHROMIUM_DIRLER[@]}"; do
+    f="$d/odak.json"; [ -e "$f" ] && dosya_sil "$f"
+  done
+  # Firefox dosyasina sadece bizim yazdigimizsa dokun
+  if [ -f "$FIREFOX_ISARET" ]; then
+    kilit_ac "$FIREFOX_DOSYA"
+    if [ -f "$FIREFOX_DOSYA.odak-yedek" ]; then mv -f "$FIREFOX_DOSYA.odak-yedek" "$FIREFOX_DOSYA"
+    else rm -f "$FIREFOX_DOSYA"; fi
+    rm -f "$FIREFOX_ISARET"
+  fi
+  grep -q '^# odak-basla' "$HOSTS" && sed -i '/^# odak-basla/,/^# odak-bitis/d' "$HOSTS"
+  nft delete table inet odak 2>/dev/null || true
+}
+
+# ---------- zamanlayici ve talepler ----------
+zamanlayiciyi_ac() { systemctl enable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true; }
+
+talep_isle() {
+  local islem zaman gun
+  if [ -f "$ARA" ] && ! duraklatildi; then dosya_sil "$ARA"; logger "concentra: plan duraklamasi bitti"; fi
+  [ -f "$TALEP" ] || return 0
+  read -r islem zaman gun < "$TALEP"
+  [ "$(simdi)" -ge "$zaman" ] || return 0
+  case "$islem" in
+    kapat) dosya_sil "$PLAN"; dosya_sil "$ARA" ;;
+    ara)   yaz $(( zaman + gun * 86400 )) "$ARA" ;;
+    hafta) yaz hafta "$PLAN" ;;
+  esac
+  dosya_sil "$TALEP"
+  logger "concentra: talep uygulandi ($islem)"
+}
+
+talep_aciklama() {
+  local islem zaman gun
+  read -r islem zaman gun < "$TALEP"
+  case "$islem" in
+    kapat) echo "Bekleyen talep: plan $(tarih "$zaman")'de kapanacak." ;;
+    ara)   echo "Bekleyen talep: plan $(tarih "$zaman")'den itibaren $gun gun duraklayacak, $(tarih $(( zaman + gun * 86400 )))'de devam edecek." ;;
+    hafta) echo "Bekleyen talep: plan $(tarih "$zaman")'de hafta ici moduna gececek." ;;
+  esac
+  echo "Geri almak icin: odak plan vazgec"
+}
+
+talep_olustur() {   # $1=islem $2=gun(ara icin) $3=aciklama
+  local z
+  if [ -f "$TALEP" ]; then echo "Zaten bekleyen bir talep var."; talep_aciklama; exit 1; fi
+  z=$(( $(simdi) + BEKLEME_GUN * 86400 ))
+  echo "$3"
+  echo "Bu talep $BEKLEME_GUN gun bekler: $(tarih "$z")'e kadar plan aynen devam eder."
+  onay
+  yaz "$1 $z ${2:-}" "$TALEP"
+  talep_aciklama
+}
+
+kontrol() {
+  mkdir -p "$DIR"
+  talep_isle
+  if [ -f "$BITIS" ] && ! elle_aktif; then
+    dosya_sil "$BITIS"; logger "concentra: tek seferlik odak bitti"
+  fi
+  find "$DIR" -maxdepth 1 -name 'ek-*' ! -name "ek-$(date +%F)" -delete 2>/dev/null
+
+  if aktif; then
+    if molada; then engelleri_kaldir; else dosya_sil "$MOLA"; uygula; fi
+  else
+    dosya_sil "$MOLA"
+    engelleri_kaldir
+    [ -n "$(plan_modu)" ] || systemctl disable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true
+  fi
+}
+
+# ---------- kurulum / kaldirma (paket scriptletleri cagirir) ----------
+eski_kurulumdan_tasi() {
+  local f u ip
+  # Eski elle kurulum: /usr/local/bin/odak + /var/lib/odak
+  if [ -d /var/lib/odak ] && [ ! -e "$DIR/plan" ] && [ ! -e "$DIR/bitis" ]; then
+    echo "concentra: eski kurulumdaki durum /var/lib/odak -> $DIR tasiniyor"
+    mkdir -p "$DIR"
+    for f in /var/lib/odak/*; do [ -e "$f" ] || continue; kilit_ac "$f"; cp -a "$f" "$DIR/"; kilitle "$DIR/$(basename "$f")"; done
+    for f in /var/lib/odak/*; do [ -e "$f" ] && dosya_sil "$f"; done
+    rmdir /var/lib/odak 2>/dev/null || true
+  fi
+  if [ -f /usr/local/bin/odak ] && grep -q "EKLENTI_ID=\"$EKLENTI_ID\"" /usr/local/bin/odak; then
+    ip=$(sed -n 's/^HOST_IP="\([^"]*\)".*/\1/p' /usr/local/bin/odak)
+    if [ -n "$ip" ] && [ ! -f "$CONF_DIR/eski-kurulum.conf" ]; then
+      mkdir -p "$CONF_DIR"
+      printf '%s\n' "# Eski elle kurulumdan otomatik tasindi" "TAILSCALE_ENGELLE=evet" "ENGELLI_IPLER=($ip)" \
+        "UYGULAMALAR+=(moonlight)" > "$CONF_DIR/eski-kurulum.conf"
+      echo "concentra: eski ayarlar $CONF_DIR/eski-kurulum.conf dosyasina yazildi"
+    fi
+    rm -f /usr/local/bin/odak
+    echo "concentra: eski /usr/local/bin/odak kaldirildi"
+  fi
+  [ -f /usr/local/share/odak/odak-yt.crx ] && rm -rf /usr/local/share/odak
+  for u in /etc/systemd/system/odak-kontrol.timer /etc/systemd/system/odak-kontrol.service; do
+    if [ -f "$u" ] && grep -q 'odak' "$u"; then
+      systemctl disable --now odak-kontrol.timer >/dev/null 2>&1 || true
+      rm -f "$u"
+    fi
+  done
+  systemctl daemon-reload 2>/dev/null || true
+}
+
+kur() {
+  local c
+  eski_kurulumdan_tasi
+  # tasima yeni bir ayar dosyasi yazmis olabilir, yeniden oku
+  if [ -d "$CONF_DIR" ]; then for c in "$CONF_DIR"/*.conf; do [ -f "$c" ] && . "$c"; done; fi
+  kanallari_hazirla
+  if [ -n "$(plan_modu)" ] || [ -f "$BITIS" ]; then zamanlayiciyi_ac; fi
+  kontrol
+}
+
+kaldir() {
+  local d
+  engelleri_kaldir
+  for d in "${CHROMIUM_DIRLER[@]}"; do dosya_sil "$d/odak-eklenti.json"; done
+  systemctl disable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true
+  echo "concentra: engeller ve eklenti politikasi kaldirildi. Durum $DIR icinde duruyor."
+}
+
+# ---------- komutlar ----------
+yardim() {
+  cat <<EOF
+concentra $SURUM - odak modu
+
+  odak 2 | odak 1.5 | odak 45dk   tek seferlik odak (en fazla 24 saat)
+  odak hafta                      Pzt-Cum $PLAN_BAS-$PLAN_BIT otomatik odak
+  odak full                       her gun $PLAN_BAS-$PLAN_BIT otomatik odak
+  odak plan kapat                 $BEKLEME_GUN gun sonra plani kapatir
+  odak plan ara <gun>             $BEKLEME_GUN gun sonra plani <gun> gun duraklatir (1-$ARA_MAX_GUN), sonra devam eder
+  odak plan vazgec                bekleyen talebi geri alir
+  odak plan devam                 duraklamayi hemen bitirir
+  odak mola                       $MOLA_DK dk mola (suresi bitise eklenir)
+  odak kanal                      YouTube izin listesi
+  odak kanal ekle|sil @kanal      listeyi degistirir (sadece odak disinda)
+  odak durum                      durum
+  odak surum
+
+Ayarlar: $CONF ve $CONF_DIR/*.conf
+EOF
+}
+
+durum() {
+  local mod kalan
+  if elle_aktif; then
+    kalan=$(( $(cat "$BITIS") - $(simdi) ))
+    printf "Tek seferlik odak: kalan %d saat %d dakika (bitis: %s)\n" \
+      $((kalan / 3600)) $((kalan % 3600 / 60)) "$(saat "$(cat "$BITIS")")"
+  fi
+  mod=$(plan_modu)
+  if [ -n "$mod" ]; then
+    echo "Plan: $(plan_adi "$mod"), $PLAN_BAS-$PLAN_BIT"
+    plan_aktif && echo "Plan su an aktif. Bugunku bitis: $(saat "$(plan_bitis_bugun)")"
+    duraklatildi && echo "Plan duraklatildi, $(tarih "$(cat "$ARA")")'de kendiliginden devam edecek. (Hemen devam: odak plan devam)"
+  fi
+  [ -f "$TALEP" ] && talep_aciklama
+  molada && echo "Su an moladasin. Mola bitisi: $(saat "$(cat "$MOLA")")"
+  aktif || echo "Su an engel yok."
+}
+
+mola() {
+  local m ek=0
+  aktif || { echo "Odak modu kapali, molaya gerek yok."; exit 0; }
+  molada && { echo "Zaten moladasin. Mola bitisi: $(saat "$(cat "$MOLA")")"; exit 0; }
+
+  m=$(( $(simdi) + MOLA_SN ))
+  if elle_aktif; then
+    yaz $(( $(cat "$BITIS") + MOLA_SN )) "$BITIS"
+    echo "Tek seferlik odagin yeni bitisi: $(saat "$(cat "$BITIS")")"
+  fi
+  if plan_aktif; then
+    [ -f "$(ek_dosya)" ] && ek=$(cat "$(ek_dosya)")
+    yaz $(( ek + MOLA_SN )) "$(ek_dosya)"
+    echo "Planin bugunku yeni bitisi: $(saat "$(plan_bitis_bugun)")"
+  fi
+  yaz "$m" "$MOLA"
+  engelleri_kaldir
+  echo "$MOLA_DK dakikalik mola basladi. Mola bitisi: $(saat "$m")"
+}
+
+baslat() {
+  local sn yeni
+  # sadece duz sayi kabul et: 3 | 1.5 | 45dk  (nan, inf, 0x10, 1e9 vb. reddedilir)
+  [[ "$1" =~ ^[0-9]{1,4}([.][0-9]{1,3})?(dk)?$ ]] \
+    || { echo "Gecerli bir sure gir (en fazla 24 saat). Ornek: odak 2 | odak 1.5 | odak 45dk. Komutlar: odak yardim"; exit 1; }
+  case "$1" in
+    *dk) sn=$(awk -v m="${1%dk}" 'BEGIN { if (m+0 <= 0 || m+0 > 1440) exit 1; printf "%d", m*60 }') ;;
+    *)   sn=$(awk -v h="$1"     'BEGIN { if (h+0 <= 0 || h+0 > 24)   exit 1; printf "%d", h*3600 }') ;;
+  esac || { echo "Gecerli bir sure gir (en fazla 24 saat). Ornek: odak 2 | odak 1.5 | odak 45dk"; exit 1; }
+
+  yeni=$(( $(simdi) + sn ))
+  if elle_aktif && [ "$(cat "$BITIS")" -ge "$yeni" ]; then
+    echo "Zaten bundan daha uzun bir odak suresi var."; durum; exit 0
+  fi
+
+  echo "Bitis saati: $(saat "$yeni"). O saate kadar engellenecek:"
+  engel_listesi
+  echo "Sure dolmadan geri alinamaz, yeniden baslatsan bile. Mola icin: odak mola"
+  onay
+
+  yaz "$yeni" "$BITIS"
+  zamanlayiciyi_ac
+  kontrol
+  echo "Odak modu basladi."
+}
+
+plan_ayarla() {
+  local yeni="$1" eski
+  eski=$(plan_modu)
+  if [ "$eski" = "$yeni" ]; then
+    echo "Bu plan zaten acik."
+    duraklatildi && echo "Plan duraklatilmis. Hemen devam etmek icin: odak plan devam"
+    exit 0
+  fi
+  if [ "$eski" = full ] && [ "$yeni" = hafta ]; then
+    talep_olustur hafta "" "Plan her gunden hafta icine gevsetilecek (hafta sonlari serbest)."
+    exit 0
+  fi
+
+  echo "Otomatik plan: $(plan_adi "$yeni"), $PLAN_BAS-$PLAN_BIT arasi engellenecek:"
+  engel_listesi
+  echo "Kapatmak ya da gevsetmek $BEKLEME_GUN gun bekleme gerektirir."
+  onay
+
+  yaz "$yeni" "$PLAN"
+  zamanlayiciyi_ac
+  kontrol
+  echo "Plan kuruldu."; durum
+}
+
+plan_kapat() {
+  [ -n "$(plan_modu)" ] || { echo "Acik bir plan yok."; exit 0; }
+  talep_olustur kapat "" "Otomatik plan tamamen kapatilacak."
+}
+
+plan_ara() {
+  local gun="${1:-}"
+  [ -n "$(plan_modu)" ] || { echo "Acik bir plan yok."; exit 0; }
+  [[ "$gun" =~ ^[0-9]{1,2}$ ]] && [ "$gun" -ge 1 ] && [ "$gun" -le "$ARA_MAX_GUN" ] \
+    || { echo "Gun sayisi 1-$ARA_MAX_GUN arasi olmali. Ornek: odak plan ara 7"; exit 1; }
+  duraklatildi && { echo "Plan zaten duraklatilmis."; durum; exit 0; }
+  talep_olustur ara "$gun" "Plan $gun gun duraklatilacak, sonra kendiliginden devam edecek."
+}
+
+plan_vazgec() {
+  [ -f "$TALEP" ] || { echo "Bekleyen bir talep yok."; exit 0; }
+  dosya_sil "$TALEP"
+  echo "Talep geri alindi, plan oldugu gibi devam ediyor."
+}
+
+plan_devam() {
+  duraklatildi || { echo "Plan duraklatilmamis."; exit 0; }
+  dosya_sil "$ARA"
+  kontrol
+  echo "Plan hemen devam ediyor."; durum
+}
+
+case "${1:-}" in
+  --kontrol)       kontrol ;;
+  --kur)           kur ;;
+  --kaldir)        kaldir ;;
+  kanal)           kanal "${2:-}" "${3:-}" ;;
+  mola)            mola ;;
+  hafta|full)      plan_ayarla "$1" ;;
+  plan)
+    case "${2:-}" in
+      kapat)  plan_kapat ;;
+      ara)    plan_ara "${3:-}" ;;
+      vazgec) plan_vazgec ;;
+      devam)  plan_devam ;;
+      *)      durum ;;
+    esac ;;
+  durum|"")        durum ;;
+  yardim|help|-h|--help) yardim ;;
+  surum|--version) echo "concentra $SURUM" ;;
+  *)               baslat "$1" ;;
+esac

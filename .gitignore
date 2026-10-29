@@ -1,0 +1,6 @@
+# Eklenti imza anahtari ASLA repoya girmemeli
+*.pem
+*.crx
+src/
+pkg/
+*.pkg.tar.*

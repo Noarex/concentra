@@ -1,0 +1,20 @@
+post_install() {
+  systemctl daemon-reload
+  /usr/bin/odak --kur
+  echo ">> concentra kuruldu. Komutlar: odak yardim"
+  echo ">> Ayarlar: /etc/concentra.conf (kendi eklemelerin icin /etc/concentra.d/*.conf)"
+  echo ">> YouTube eklentisi icin tarayiciyi kapatip ac."
+}
+
+post_upgrade() {
+  systemctl daemon-reload
+  /usr/bin/odak --kur
+}
+
+pre_remove() {
+  /usr/bin/odak --kaldir || true
+}
+
+post_remove() {
+  systemctl daemon-reload
+}

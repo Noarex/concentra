@@ -1,0 +1,6 @@
+[Unit]
+Description=concentra odak modu kontrolu
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/odak --kontrol

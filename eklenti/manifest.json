@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Odak YouTube",
+  "version": "1.0",
+  "description": "Odak modunda sadece izin verilen kanallarin videolarini oynatir.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyE8UYOQliv5/pZMqZAm5pQH9BcXJMl2sC9JE7eqrYXBuZ5QQFyz2oUKrAAShCIZ4JGAoGrYvuEFx/fnyejtSKkoJbUVyE7ZiN/hVgcrs5NEuNFoHQ1gSllLCvZqDyb77KKEXawywqFb8FmB0fOQPAqHxCbdDWBkAqlK4oCmt3DQXS6iCWqT+LpmSPoVHw21tbXP0LkNW9kJFSwBF+8RxL8G1m2t+AMH2yz7DiAHI6uaYOuyRmcblThgy0WIq+/ONaYRc5aJM1HgO2Y3WM+XaauNDBOckgVoO/3jZixhHG1Bko4X1mTlecvgiZn1SVfwfJBiYOWb8YfPvV8qCafsS+wIDAQAB",
+  "permissions": ["storage"],
+  "storage": { "managed_schema": "schema.json" },
+  "content_scripts": [{
+    "matches": ["*://*.youtube.com/*", "*://*.youtube-nocookie.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_start",
+    "all_frames": true
+  }]
+}
