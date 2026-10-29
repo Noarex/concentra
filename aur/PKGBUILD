@@ -1,6 +1,6 @@
 # Maintainer: Noarex <https://github.com/Noarex>
 pkgname=concentra
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc="Planli odak modu: siteleri, uygulamalari ve YouTube'u (kanal izin listesiyle) engeller"
 arch=('any')
@@ -13,8 +13,9 @@ optdepends=('brave-bin: YouTube kanal izin listesi eklentisi'
             'firefox: site engelleri (YouTube eklentisi yok)')
 backup=('etc/concentra.conf')
 install=concentra.install
+_eklenti=1.0.0   # eklenti (crx) surumu; sadece eklenti degisince artar
 source=("$pkgname::git+https://github.com/Noarex/concentra.git#tag=v$pkgver"
-        "odak-yt-$pkgver.crx::https://github.com/Noarex/concentra/releases/download/v$pkgver/odak-yt.crx")
+        "odak-yt-$_eklenti.crx::https://github.com/Noarex/concentra/releases/download/v$_eklenti/odak-yt.crx")
 sha256sums=('SKIP'
             '9852b8bcdce5b43ef37684de8167e02d50a76d32ffc291bd20d994e788dc3347')
 
@@ -27,7 +28,7 @@ package() {
   install -Dm644 systemd/concentra.service "$pkgdir/usr/lib/systemd/system/concentra.service"
   install -Dm644 systemd/concentra.timer "$pkgdir/usr/lib/systemd/system/concentra.timer"
   install -Dm644 eklenti/updates.xml "$pkgdir/usr/share/concentra/updates.xml"
-  install -Dm644 "$srcdir/odak-yt-$pkgver.crx" "$pkgdir/usr/share/concentra/odak-yt.crx"
+  install -Dm644 "$srcdir/odak-yt-$_eklenti.crx" "$pkgdir/usr/share/concentra/odak-yt.crx"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

@@ -5,11 +5,13 @@
 # Ayarlar: /etc/concentra.conf ve /etc/concentra.d/*.conf
 
 set -uo pipefail
-SURUM="1.0.0"
+SURUM="1.0.1"
 
 # ---------- varsayilan ayarlar (/etc/concentra.conf bunlari degistirir) ----------
 PLAN_BAS="07:30"
 PLAN_BIT="20:00"
+HAFTA_GUNLER="1 2 3 4 5"      # 1=Pazartesi ... 7=Pazar
+FULL_GUNLER="1 2 3 4 5 6 7"
 MOLA_DK=15
 BEKLEME_GUN=3
 ARA_MAX_GUN=14
@@ -76,7 +78,13 @@ evet_mi()   { case "${1,,}" in evet|yes|true|1) return 0;; *) return 1;; esac; }
 
 ek_dosya()  { echo "$DIR/ek-$(date +%F)"; }   # bugun alinan molalarin toplami
 plan_modu() { [ -f "$PLAN" ] && cat "$PLAN" || echo ""; }
-plan_adi()  { case "$1" in hafta) echo "hafta ici (Pzt-Cum)";; full) echo "her gun";; esac; }
+plan_gunleri() { case "$1" in hafta) echo "$HAFTA_GUNLER";; full) echo "$FULL_GUNLER";; esac; }
+gun_adlari() {
+  local g ad=(x Pzt Sal Car Per Cum Cmt Paz) cikti=""
+  for g in $1; do [[ "$g" =~ ^[1-7]$ ]] && cikti+="${ad[$g]} "; done
+  echo "${cikti% }"
+}
+plan_adi()  { echo "$1 ($(gun_adlari "$(plan_gunleri "$1")"))"; }
 
 plan_bitis_bugun() {
   local b ek=0
@@ -93,7 +101,7 @@ plan_aktif() {
   local mod n
   mod=$(plan_modu); [ -n "$mod" ] || return 1
   duraklatildi && return 1
-  [ "$mod" = full ] || [ "$(date +%u)" -le 5 ] || return 1
+  [[ " $(plan_gunleri "$mod") " == *" $(date +%u) "* ]] || return 1
   n=$(simdi)
   [ "$n" -ge "$(date -d "today $PLAN_BAS" +%s)" ] && [ "$n" -lt "$(plan_bitis_bugun)" ]
 }
@@ -260,7 +268,7 @@ talep_aciklama() {
   case "$islem" in
     kapat) echo "Bekleyen talep: plan $(tarih "$zaman")'de kapanacak." ;;
     ara)   echo "Bekleyen talep: plan $(tarih "$zaman")'den itibaren $gun gun duraklayacak, $(tarih $(( zaman + gun * 86400 )))'de devam edecek." ;;
-    hafta) echo "Bekleyen talep: plan $(tarih "$zaman")'de hafta ici moduna gececek." ;;
+    hafta) echo "Bekleyen talep: plan $(tarih "$zaman")'de hafta moduna gececek ($(gun_adlari "$HAFTA_GUNLER"))." ;;
   esac
   echo "Geri almak icin: odak plan vazgec"
 }
@@ -349,8 +357,8 @@ yardim() {
 concentra $SURUM - odak modu
 
   odak 2 | odak 1.5 | odak 45dk   tek seferlik odak (en fazla 24 saat)
-  odak hafta                      Pzt-Cum $PLAN_BAS-$PLAN_BIT otomatik odak
-  odak full                       her gun $PLAN_BAS-$PLAN_BIT otomatik odak
+  odak hafta                      $(gun_adlari "$HAFTA_GUNLER"), $PLAN_BAS-$PLAN_BIT otomatik odak
+  odak full                       $(gun_adlari "$FULL_GUNLER"), $PLAN_BAS-$PLAN_BIT otomatik odak
   odak plan kapat                 $BEKLEME_GUN gun sonra plani kapatir
   odak plan ara <gun>             $BEKLEME_GUN gun sonra plani <gun> gun duraklatir (1-$ARA_MAX_GUN), sonra devam eder
   odak plan vazgec                bekleyen talebi geri alir
@@ -438,7 +446,7 @@ plan_ayarla() {
     exit 0
   fi
   if [ "$eski" = full ] && [ "$yeni" = hafta ]; then
-    talep_olustur hafta "" "Plan her gunden hafta icine gevsetilecek (hafta sonlari serbest)."
+    talep_olustur hafta "" "Plan full'den hafta moduna gevsetilecek ($(gun_adlari "$HAFTA_GUNLER"))."
     exit 0
   fi
 
