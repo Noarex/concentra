@@ -5,7 +5,7 @@
 # Ayarlar: /etc/concentra.conf ve /etc/concentra.d/*.conf
 
 set -uo pipefail
-SURUM="1.1.1"
+SURUM="1.2.0"
 
 ISLETIM=$(uname -s)
 mac() { [ "$ISLETIM" = Darwin ]; }
