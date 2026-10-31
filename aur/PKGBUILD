@@ -1,6 +1,6 @@
 # Maintainer: Noarex <https://github.com/Noarex>
 pkgname=concentra
-pkgver=1.1.1
+pkgver=1.2.0
 pkgrel=1
 pkgdesc="Planli odak modu: siteleri, uygulamalari ve YouTube'u (kanal izin listesiyle) engeller"
 arch=('any')
@@ -14,7 +14,7 @@ optdepends=('brave-bin: YouTube kanal izin listesi eklentisi'
 backup=('etc/concentra.conf')
 install=concentra.install
 _eklenti=1.0.0   # eklenti (crx) surumu; sadece eklenti degisince artar
-_commit=c54fc7aad557a894869de0f087ea46d42956da76   # bu surumun kodu
+_commit=017b5bdefd0344e6fdb011e9989b41b1b2840f33   # bu surumun kodu
 source=("$pkgname::git+https://github.com/Noarex/concentra.git#commit=$_commit"
         "odak-yt-$_eklenti.crx::https://github.com/Noarex/concentra/releases/download/v$_eklenti/odak-yt.crx")
 sha256sums=('SKIP'
