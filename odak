@@ -5,7 +5,17 @@
 # Ayarlar: /etc/concentra.conf ve /etc/concentra.d/*.conf
 
 set -uo pipefail
-SURUM="1.0.1"
+SURUM="1.1.0"
+
+ISLETIM=$(uname -s)
+mac() { [ "$ISLETIM" = Darwin ]; }
+if mac; then
+  # Homebrew GNU araclari once gelsin (date -d, sed vb. Linux'taki gibi calissin)
+  for _p in /opt/homebrew /usr/local; do
+    [ -d "$_p/opt/coreutils/libexec/gnubin" ] && PATH="$_p/opt/coreutils/libexec/gnubin:$_p/opt/gnu-sed/libexec/gnubin:$_p/bin:$PATH"
+  done
+  export PATH="$PATH:/usr/sbin:/sbin"
+fi
 
 # ---------- varsayilan ayarlar (/etc/concentra.conf bunlari degistirir) ----------
 PLAN_BAS="07:30"
@@ -23,7 +33,7 @@ HOSTS_ADLAR=(twitch.tv www.twitch.tv m.twitch.tv kick.com www.kick.com x.com www
              discord.gg discordapp.com cdn.discordapp.com media.discordapp.net)
 YT_ABONELIK_ENGELLE=evet
 UYGULAMALAR=(Discord DiscordPTB DiscordCanary discord vesktop legcord webcord)
-TARAYICILAR=(brave chromium chrome firefox)
+TARAYICILAR=(brave chromium chrome firefox "Brave Browser" "Google Chrome" Safari)
 TAILSCALE_ENGELLE=hayir
 ENGELLI_IPLER=()
 VARSAYILAN_KANALLAR=(@ProfessorLeonard @TheOrganicChemistryTutor @3blue1brown @DrTrefor
@@ -43,7 +53,7 @@ case "${1:-}" in
 esac
 
 # ---------- sabit yollar ----------
-DIR=/var/lib/concentra
+if mac; then DIR=/var/db/concentra; else DIR=/var/lib/concentra; fi
 BITIS="$DIR/bitis"      # tek seferlik odagin bitisi (epoch)
 MOLA="$DIR/mola"        # molanin bitisi (epoch)
 PLAN="$DIR/plan"        # "hafta" ya da "full"
@@ -58,6 +68,7 @@ ZAMANLAYICI=concentra.timer
 YT_YOL="youtube.com/feed/subscriptions"
 HOSTS=/etc/hosts
 CHROMIUM_DIRLER=(/etc/chromium/policies/managed /etc/brave/policies/managed /etc/opt/chrome/policies/managed)
+mac && CHROMIUM_DIRLER=()   # macOS'ta tarayici politikalari profil gerektiriyor (2. asama)
 FIREFOX_DIR=/etc/firefox/policies
 FIREFOX_DOSYA="$FIREFOX_DIR/policies.json"
 
@@ -65,9 +76,19 @@ FIREFOX_DOSYA="$FIREFOX_DIR/policies.json"
 EKLENTI_ID="mfekpjflnlikpeejlfcilhhdeonchfgh"
 EKLENTI_DIR=/usr/share/concentra
 
+# macOS
+PF_ANCHOR="com.apple/concentra"
+LAUNCHD_ETIKET="com.noarex.concentra"
+LAUNCHD_PLIST="/Library/LaunchDaemons/$LAUNCHD_ETIKET.plist"
+
 # ---------- yardimcilar ----------
-kilitle()   { chattr +i "$1" 2>/dev/null || true; }
-kilit_ac()  { [ -e "$1" ] && chattr -i "$1" 2>/dev/null || true; }
+if mac; then
+  kilitle()  { chflags schg "$1" 2>/dev/null || true; }
+  kilit_ac() { [ -e "$1" ] && chflags noschg "$1" 2>/dev/null || true; }
+else
+  kilitle()  { chattr +i "$1" 2>/dev/null || true; }
+  kilit_ac() { [ -e "$1" ] && chattr -i "$1" 2>/dev/null || true; }
+fi
 yaz()       { mkdir -p "$DIR"; kilit_ac "$2"; echo "$1" > "$2"; kilitle "$2"; }
 dosya_sil() { kilit_ac "$1"; rm -f "$1"; }
 saat()      { date -d @"$1" '+%H:%M'; }
@@ -109,7 +130,8 @@ aktif() { elle_aktif || plan_aktif; }
 
 engel_listesi() {
   printf '  - %s\n' "${SITELER[@]}"
-  evet_mi "$YT_ABONELIK_ENGELLE" && echo "  - $YT_YOL"
+  mac && echo "  - (macOS: siteler /etc/hosts ile; YouTube engelleri henuz yok)"
+  ! mac && evet_mi "$YT_ABONELIK_ENGELLE" && echo "  - $YT_YOL"
   [ -f "$EKLENTI_DIR/odak-yt.crx" ] && echo "  - YouTube: izin listesi disindaki kanallar ve Shorts"
   evet_mi "$TAILSCALE_ENGELLE" && echo "  - Tailscale uzerinden butun baglantilar"
   [ "${#ENGELLI_IPLER[@]}" -gt 0 ] && echo "  - Su adreslere baglanti: ${ENGELLI_IPLER[*]}"
@@ -165,6 +187,54 @@ kanallari_hazirla() {
 }
 
 # ---------- engeller ----------
+dns_tazele() { mac && { dscacheutil -flushcache; killall -HUP mDNSResponder; } >/dev/null 2>&1; return 0; }
+
+hosts_ekle() {
+  local h
+  [ "${#HOSTS_ADLAR[@]}" -gt 0 ] || return 0
+  grep -q '^# odak-basla' "$HOSTS" && return 0
+  {
+    echo "# odak-basla"
+    for h in "${HOSTS_ADLAR[@]}"; do echo "0.0.0.0 $h"; echo ":: $h"; done
+    echo "# odak-bitis"
+  } >> "$HOSTS"
+  dns_tazele
+}
+
+hosts_sil() {
+  local gecici
+  grep -q '^# odak-basla' "$HOSTS" || return 0
+  gecici=$(mktemp)
+  awk '/^# odak-basla/{s=1} !s{print} /^# odak-bitis/{s=0}' "$HOSTS" > "$gecici" && cat "$gecici" > "$HOSTS"
+  rm -f "$gecici"
+  dns_tazele
+}
+
+pf_kur() {
+  local kurallar=() ip
+  if evet_mi "$TAILSCALE_ENGELLE"; then
+    kurallar+=("block drop out quick inet to 100.64.0.0/10" "block drop out quick inet6 to fd7a:115c:a1e0::/48")
+  fi
+  for ip in "${ENGELLI_IPLER[@]}"; do
+    if [[ "$ip" == *:* ]]; then kurallar+=("block drop out quick inet6 to $ip")
+    else kurallar+=("block drop out quick inet to $ip"); fi
+  done
+  if [ "${#kurallar[@]}" -eq 0 ]; then pf_kaldir; return; fi
+  [ -n "$(pfctl -a "$PF_ANCHOR" -s rules 2>/dev/null)" ] && return
+  # ana kural seti com.apple/* capasini icermiyorsa sistemin pf.conf'unu yukle
+  pfctl -s Anchors 2>/dev/null | grep -q 'com.apple' || pfctl -f /etc/pf.conf >/dev/null 2>&1
+  printf '%s\n' "${kurallar[@]}" | pfctl -a "$PF_ANCHOR" -f - >/dev/null 2>&1
+  pfctl -e >/dev/null 2>&1 || true
+}
+
+pf_kaldir() {
+  [ -n "$(pfctl -a "$PF_ANCHOR" -s rules 2>/dev/null)" ] && pfctl -a "$PF_ANCHOR" -F rules >/dev/null 2>&1
+  return 0
+}
+
+ag_kur()     { if mac; then pf_kur; else nft_kur; fi; }
+ag_kaldir()  { if mac; then pf_kaldir; else nft delete table inet odak 2>/dev/null || true; fi; }
+
 nft_kur() {
   local ip
   if ! evet_mi "$TAILSCALE_ENGELLE" && [ "${#ENGELLI_IPLER[@]}" -eq 0 ]; then
@@ -195,6 +265,7 @@ uygula() {
   done
 
   # Firefox (tarayici yeniden acilinca devreye girer)
+  if ! mac; then
   for s in "${SITELER[@]}"; do ff+="\"*://*.$s/*\","; done
   evet_mi "$YT_ABONELIK_ENGELLE" && ff+="\"*://*.youtube.com/feed/subscriptions*\","
   mkdir -p "$FIREFOX_DIR"
@@ -205,25 +276,20 @@ uygula() {
   printf '{ "policies": { "WebsiteFilter": { "Block": [%s] } } }\n' "${ff%,}" > "$FIREFOX_DOSYA"
   kilitle "$FIREFOX_DOSYA"
   touch "$FIREFOX_ISARET"
+  fi
 
   # /etc/hosts: her tarayicida aninda calisir
-  if [ "${#HOSTS_ADLAR[@]}" -gt 0 ] && ! grep -q '^# odak-basla' "$HOSTS"; then
-    {
-      echo "# odak-basla"
-      for h in "${HOSTS_ADLAR[@]}"; do echo "0.0.0.0 $h"; echo ":: $h"; done
-      echo "# odak-bitis"
-    } >> "$HOSTS"
-  fi
+  hosts_ekle
 
   # Engel yeni devreye giriyorsa tarayicilari kapat (sekmeler yeniden acilinca engellenir)
   if [ ! -f "$ENGEL_ISARET" ]; then
     mkdir -p "$DIR"; touch "$ENGEL_ISARET"
-    for h in "${TARAYICILAR[@]}"; do pkill -x "$h" 2>/dev/null || true; done
+    for h in "${TARAYICILAR[@]}"; do pkill -ix "$h" 2>/dev/null || true; done
   fi
 
   eklenti_yaz true
-  for h in "${UYGULAMALAR[@]}"; do pkill -x "$h" 2>/dev/null || true; done
-  nft_kur
+  for h in "${UYGULAMALAR[@]}"; do pkill -ix "$h" 2>/dev/null || true; done
+  ag_kur
 }
 
 engelleri_kaldir() {
@@ -240,12 +306,14 @@ engelleri_kaldir() {
     else rm -f "$FIREFOX_DOSYA"; fi
     rm -f "$FIREFOX_ISARET"
   fi
-  grep -q '^# odak-basla' "$HOSTS" && sed -i '/^# odak-basla/,/^# odak-bitis/d' "$HOSTS"
-  nft delete table inet odak 2>/dev/null || true
+  hosts_sil
+  ag_kaldir
 }
 
 # ---------- zamanlayici ve talepler ----------
-zamanlayiciyi_ac() { systemctl enable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true; }
+# macOS'ta launchd servisi hep calisir (kontrol ucuz), Linux'ta sadece gerektiginde
+zamanlayiciyi_ac()    { mac || systemctl enable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true; }
+zamanlayiciyi_kapat() { mac || systemctl disable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true; }
 
 talep_isle() {
   local islem zaman gun
@@ -297,7 +365,7 @@ kontrol() {
   else
     dosya_sil "$MOLA"
     engelleri_kaldir
-    [ -n "$(plan_modu)" ] || systemctl disable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true
+    [ -n "$(plan_modu)" ] || zamanlayiciyi_kapat
   fi
 }
 
@@ -333,9 +401,35 @@ eski_kurulumdan_tasi() {
   systemctl daemon-reload 2>/dev/null || true
 }
 
+mac_kur() {
+  local bin ornek
+  bin="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  mkdir -p "$DIR" "$CONF_DIR"
+  ornek="$(dirname "$(readlink -f "$0")")/../share/concentra/concentra.conf"
+  if [ ! -f "$CONF" ] && [ -f "$ornek" ]; then cp "$ornek" "$CONF"; echo "concentra: $CONF olusturuldu"; fi
+  cat > "$LAUNCHD_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LAUNCHD_ETIKET</string>
+  <key>ProgramArguments</key>
+  <array><string>$bin</string><string>--kontrol</string></array>
+  <key>StartInterval</key><integer>60</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>/var/log/concentra.log</string>
+</dict>
+</plist>
+PLIST
+  chown root:wheel "$LAUNCHD_PLIST"; chmod 644 "$LAUNCHD_PLIST"
+  launchctl bootout "system/$LAUNCHD_ETIKET" >/dev/null 2>&1 || true
+  launchctl bootstrap system "$LAUNCHD_PLIST"
+  echo "concentra: dakikalik kontrol servisi kuruldu ($LAUNCHD_ETIKET)"
+}
+
 kur() {
   local c
-  eski_kurulumdan_tasi
+  if mac; then mac_kur; else eski_kurulumdan_tasi; fi
   # tasima yeni bir ayar dosyasi yazmis olabilir, yeniden oku
   if [ -d "$CONF_DIR" ]; then for c in "$CONF_DIR"/*.conf; do [ -f "$c" ] && . "$c"; done; fi
   kanallari_hazirla
@@ -347,7 +441,12 @@ kaldir() {
   local d
   engelleri_kaldir
   for d in "${CHROMIUM_DIRLER[@]}"; do dosya_sil "$d/odak-eklenti.json"; done
-  systemctl disable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true
+  if mac; then
+    launchctl bootout "system/$LAUNCHD_ETIKET" >/dev/null 2>&1 || true
+    rm -f "$LAUNCHD_PLIST"
+  else
+    systemctl disable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true
+  fi
   echo "concentra: engeller ve eklenti politikasi kaldirildi. Durum $DIR icinde duruyor."
 }
 

@@ -45,9 +45,19 @@ Durum bilgisi `/var/lib/concentra` klasöründe tutulur.
 
 ## Kurulum
 
+**Arch Linux:**
 ```
-yay -S concentra
+git clone https://github.com/Noarex/concentra.git && cd concentra/aur && makepkg -si
 ```
+
+**macOS (Homebrew):**
+```
+brew tap noarex/concentra https://github.com/Noarex/concentra
+brew install concentra
+sudo odak --kur
+```
+macOS'ta siteler `/etc/hosts`, ag engelleri `pf`, dakikalik kontrol launchd ile yapilir.
+YouTube kanal izin listesi ve abonelik engeli macOS'ta henuz yok.
 
 ## Sınırlar
 
