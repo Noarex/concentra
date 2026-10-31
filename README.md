@@ -26,6 +26,7 @@ Terminal komutu: `odak` (ya da `concentra`).
 | `odak mola` | 15 dk mola. Molanın süresi bitişe eklenir |
 | `odak kanal` | YouTube izin listesi |
 | `odak kanal ekle\|sil @kanal` | Listeyi değiştirir (sadece odak dışında) |
+| `odak eklenti` | YouTube eklentisinin kurulumu ve durumu (macOS) |
 | `odak durum` | Durum |
 | `odak yardim` | Komut listesi |
 
@@ -57,8 +58,11 @@ brew trust noarex/concentra
 brew install concentra
 sudo odak --kur
 ```
-macOS'ta siteler `/etc/hosts`, ag engelleri `pf`, dakikalik kontrol launchd ile yapilir.
-YouTube kanal izin listesi ve abonelik engeli macOS'ta henuz yok.
+macOS'ta siteler `/etc/hosts`, ağ engelleri `pf`, dakikalık kontrol launchd ile yapılır.
+
+`sudo odak --kur` iki şey ister, ikisi de bir kerelik:
+- **Brave ayar profili:** gizli pencereyi, Tor penceresini ve misafir modunu kapatır (her zaman, odak dışında da). System Settings → General → Device Management'tan onaylanır.
+- **YouTube eklentisi:** macOS, MDM'e bağlı olmayan Mac'lerde Web Store dışı eklentiyi zorla kurdurmuyor. Bu yüzden eklenti Brave'e elle "Load unpacked" ile yüklenir (`odak eklenti` adımları gösterir). Odak sırasında eklenti her Brave profilinde yüklü ve açık değilse Brave kapatılır.
 
 Güncelleme: `brew update && brew upgrade concentra` (macOS), `git pull` sonrası `makepkg -si` (Arch).
 

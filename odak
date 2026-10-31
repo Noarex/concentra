@@ -47,7 +47,7 @@ if [ -d "$CONF_DIR" ]; then for _c in "$CONF_DIR"/*.conf; do [ -f "$_c" ] && . "
 
 # Okuma amacli komutlar root istemez, gerisi sudo ile kendini yeniden calistirir
 case "${1:-}" in
-  ""|durum|yardim|help|-h|--help|surum|--version) ;;
+  ""|durum|yardim|help|-h|--help|surum|--version|eklenti) ;;
   kanal) [ -n "${2:-}" ] && [ "$EUID" -ne 0 ] && exec sudo "$0" "$@" ;;
   *) [ "$EUID" -eq 0 ] || exec sudo "$0" "$@" ;;
 esac
@@ -68,7 +68,7 @@ ZAMANLAYICI=concentra.timer
 YT_YOL="youtube.com/feed/subscriptions"
 HOSTS=/etc/hosts
 CHROMIUM_DIRLER=(/etc/chromium/policies/managed /etc/brave/policies/managed /etc/opt/chrome/policies/managed)
-mac && CHROMIUM_DIRLER=()   # macOS'ta tarayici politikalari profil gerektiriyor (2. asama)
+mac && CHROMIUM_DIRLER=()   # macOS'ta politikalar yapilandirma profiliyle gelir (asagida)
 FIREFOX_DIR=/etc/firefox/policies
 FIREFOX_DOSYA="$FIREFOX_DIR/policies.json"
 
@@ -77,6 +77,14 @@ EKLENTI_ID="mfekpjflnlikpeejlfcilhhdeonchfgh"
 EKLENTI_DIR=/usr/share/concentra
 
 # macOS
+# Eklenti Brave'e elle "paketlenmemis" olarak yuklenir (Web Store disi eklentiyi zorla kurmak
+# MDM gerektiriyor). Durumu durum.json'dan okur; odak sirasinda eklenti yuklu ve acik degilse
+# Brave kapatilir.
+MAC_EKLENTI="$DIR/eklenti"
+MAC_EKLENTI_KAYNAK="$(dirname "$(readlink -f "$0")")/../share/concentra/eklenti"
+BRAVE_SUREC="Brave Browser"
+PROFIL_ID="com.noarex.concentra.brave"
+PROFIL_DOSYA="$DIR/concentra-brave.mobileconfig"
 PF_ANCHOR="com.apple/concentra"
 LAUNCHD_ETIKET="com.noarex.concentra"
 LAUNCHD_PLIST="/Library/LaunchDaemons/$LAUNCHD_ETIKET.plist"
@@ -130,10 +138,11 @@ aktif() { elle_aktif || plan_aktif; }
 
 engel_listesi() {
   printf '  - %s\n' "${SITELER[@]}"
-  mac && echo "  - (macOS: siteler /etc/hosts ile; YouTube engelleri henuz yok)"
-  ! mac && evet_mi "$YT_ABONELIK_ENGELLE" && echo "  - $YT_YOL"
+  mac && echo "  - (macOS: siteler /etc/hosts ile engellenir)"
+  evet_mi "$YT_ABONELIK_ENGELLE" && echo "  - $YT_YOL"
   ! mac && echo "  - Gizli pencere ve Tor penceresi"
-  [ -f "$EKLENTI_DIR/odak-yt.crx" ] && echo "  - YouTube: izin listesi disindaki kanallar ve Shorts"
+  if [ -f "$EKLENTI_DIR/odak-yt.crx" ] || mac; then echo "  - YouTube: izin listesi disindaki kanallar ve Shorts"; fi
+  mac && echo "  - Brave, YouTube eklentisi yuklu ve acik degilse kapatilir"
   evet_mi "$TAILSCALE_ENGELLE" && echo "  - Tailscale uzerinden butun baglantilar"
   [ "${#ENGELLI_IPLER[@]}" -gt 0 ] && echo "  - Su adreslere baglanti: ${ENGELLI_IPLER[*]}"
   [ "${#UYGULAMALAR[@]}" -gt 0 ] && echo "  - Kapatilan uygulamalar: ${UYGULAMALAR[*]}"
@@ -149,9 +158,18 @@ kanal_listesi() {
 # aktif=true: sadece izinli kanallar oynar; false: eklenti bekler. Dosya hep yerinde kalir,
 # yoksa tarayici eklentiyi kaldirir. Icerik degismediyse yazmaz.
 eklenti_yaz() {
-  local durum="$1" kl="" k d f icerik
-  [ -f "$EKLENTI_DIR/odak-yt.crx" ] || return 0
+  local durum="$1" kl="" k d f icerik ab=false
   while IFS= read -r k; do kl+="\"$k\","; done < <(kanal_listesi)
+  if mac; then
+    [ -f "$MAC_EKLENTI/manifest.json" ] || return 0
+    evet_mi "$YT_ABONELIK_ENGELLE" && ab=true
+    icerik=$(printf '{ "aktif": %s, "abonelik": %s, "kanallar": [%s] }' "$durum" "$ab" "${kl%,}")
+    f="$MAC_EKLENTI/durum.json"
+    [ -f "$f" ] && [ "$(cat "$f")" = "$icerik" ] && return 0
+    echo "$icerik" > "$f.yeni" && chmod 644 "$f.yeni" && mv -f "$f.yeni" "$f"
+    return 0
+  fi
+  [ -f "$EKLENTI_DIR/odak-yt.crx" ] || return 0
   icerik=$(printf '{ "ExtensionInstallForcelist": ["%s;file://%s/updates.xml"], "3rdparty": { "extensions": { "%s": { "aktif": %s, "kanallar": [%s] } } } }' \
     "$EKLENTI_ID" "$EKLENTI_DIR" "$EKLENTI_ID" "$durum" "${kl%,}")
   for d in "${CHROMIUM_DIRLER[@]}"; do
@@ -185,6 +203,151 @@ kanallari_hazirla() {
   [ -f "$KANALLAR" ] && return
   { echo "# odak kanal ekle/sil ile duzenle"; printf '%s\n' "${VARSAYILAN_KANALLAR[@]}"; } > "$KANALLAR"
   kilitle "$KANALLAR"
+}
+
+# ---------- macOS: eklenti, Brave bekcisi, profil ----------
+# Paketteki eklentiyi $MAC_EKLENTI'ye kopyalar (sadece degistiyse). Brave bu klasoru okur.
+mac_eklenti_kopyala() {
+  local f degisti=""
+  [ -d "$MAC_EKLENTI_KAYNAK" ] || return 0
+  mkdir -p "$MAC_EKLENTI"
+  for f in "$MAC_EKLENTI_KAYNAK"/*; do
+    [ -f "$f" ] || continue
+    cmp -s "$f" "$MAC_EKLENTI/$(basename "$f")" && continue
+    cp -f "$f" "$MAC_EKLENTI/"; degisti=1
+  done
+  chmod 755 "$DIR" "$MAC_EKLENTI"; chmod 644 "$MAC_EKLENTI"/*
+  [ -n "$degisti" ] && logger "concentra: eklenti dosyalari guncellendi"
+  return 0
+}
+
+konsol_kullanici() { local u; u=$(/usr/bin/stat -f %Su /dev/console 2>/dev/null); [ -n "$u" ] && [ "$u" != root ] && echo "$u"; }
+
+# Bir Brave profilinde eklentinin durumu: tamam | yok | kapali | baska-klasor
+brave_profil_durumu() {
+  local p="$1" f c sonuc=yok
+  for f in "$p/Secure Preferences" "$p/Preferences"; do
+    [ -f "$f" ] || continue
+    c=$(jq -r --arg id "$EKLENTI_ID" '
+      .extensions.settings[$id] // empty
+      | if ((.disable_reasons // 0) | if type == "array" then length > 0 else . != 0 end) or (.state == 0)
+        then "kapali" else (.path // "") end' "$f" 2>/dev/null) || continue
+    [ -n "$c" ] || continue
+    case "$c" in
+      kapali) sonuc=kapali ;;
+      "$MAC_EKLENTI"|"$MAC_EKLENTI/"|"/private$MAC_EKLENTI"|"/private$MAC_EKLENTI/") echo tamam; return ;;
+      *) sonuc=baska-klasor ;;
+    esac
+  done
+  echo "$sonuc"
+}
+
+# Kullanicinin butun Brave profillerinde eklenti tamam mi? Degilse sorunlu profili yazar.
+brave_eklenti_durumu() {
+  local ev="$1" kok p d bulundu=""
+  kok="$ev/Library/Application Support/BraveSoftware/Brave-Browser"
+  [ -d "$kok" ] || { echo "brave-yok"; return; }
+  for p in "$kok"/Default "$kok"/Profile\ *; do
+    [ -f "$p/Preferences" ] || continue
+    bulundu=1
+    d=$(brave_profil_durumu "$p")
+    [ "$d" = tamam ] || { echo "$d $(basename "$p")"; return; }
+  done
+  [ -n "$bulundu" ] && echo tamam || echo "yok Default"
+}
+
+bildir() {   # ekrandaki kullaniciya bildirim gosterir
+  local u
+  u=$(konsol_kullanici) || return 0
+  launchctl asuser "$(id -u "$u")" sudo -u "$u" osascript -e "display notification \"$1\" with title \"concentra\"" >/dev/null 2>&1 || true
+}
+
+# Odak sirasinda: Brave aciksa ve eklenti her profilde yuklu/acik degilse Brave'i kapat
+brave_bekci() {
+  local u ev d
+  pgrep -x "$BRAVE_SUREC" >/dev/null || return 0
+  u=$(konsol_kullanici) || return 0
+  ev=$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  [ -n "$ev" ] || return 0
+  d=$(brave_eklenti_durumu "$ev")
+  case "$d" in tamam|brave-yok) return 0 ;; esac
+  pkill -x "$BRAVE_SUREC" 2>/dev/null || true
+  logger "concentra: Brave kapatildi (YouTube eklentisi: $d)"
+  bildir "Brave kapatildi: YouTube eklentisi yuklu ya da acik degil. Kurulum: odak eklenti"
+}
+
+profil_yaz() {
+  cat > "$PROFIL_DOSYA" <<'MCONF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadType</key><string>Configuration</string>
+  <key>PayloadVersion</key><integer>1</integer>
+  <key>PayloadIdentifier</key><string>com.noarex.concentra.brave</string>
+  <key>PayloadUUID</key><string>6F0E2C4A-3B1D-4E57-9A8C-2D5F7B1E9C30</string>
+  <key>PayloadDisplayName</key><string>concentra: Brave</string>
+  <key>PayloadDescription</key><string>Brave'de gizli pencereyi, Tor penceresini ve misafir modunu kapatir.</string>
+  <key>PayloadScope</key><string>System</string>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadType</key><string>com.brave.Browser</string>
+      <key>PayloadVersion</key><integer>1</integer>
+      <key>PayloadIdentifier</key><string>com.noarex.concentra.brave.ayarlar</string>
+      <key>PayloadUUID</key><string>A3C1E7B2-5D4F-4F18-8E6A-7B9C0D2E4F61</string>
+      <key>PayloadDisplayName</key><string>Brave</string>
+      <key>PayloadEnabled</key><true/>
+      <key>IncognitoModeAvailability</key><integer>1</integer>
+      <key>TorDisabled</key><true/>
+      <key>BrowserGuestModeEnabled</key><false/>
+    </dict>
+  </array>
+</dict>
+</plist>
+MCONF
+  chmod 644 "$PROFIL_DOSYA"
+}
+
+profil_kurulu() { profiles list -all 2>/dev/null | grep -q "$PROFIL_ID"; }
+
+mac_eklenti_yardim() {
+  cat <<EOF
+YouTube eklentisini Brave'e yukle (bir kez, odak disindayken):
+  1. Brave'de adres cubuguna yaz: brave://extensions
+  2. Sag ustten "Developer mode"u ac.
+  3. "Load unpacked"a bas, acilan pencerede Cmd+Shift+G'ye bas ve sunu yapistir:
+       $MAC_EKLENTI
+     Enter, sonra "Select".
+  Birden fazla Brave profilin varsa her birinde yap. Developer mode acik kalsin.
+  Odak sirasinda eklenti yuklu ve acik degilse Brave her dakika kapatilir.
+EOF
+}
+
+mac_profil_yardim() {
+  cat <<EOF
+Brave ayar profilini onayla (gizli pencere, Tor ve misafir modu kapanir):
+  System Settings > General > Device Management (Profiles) > "concentra: Brave" > Install
+  Profil dosyasi: $PROFIL_DOSYA
+EOF
+}
+
+eklenti_komutu() {
+  mac || { echo "Linux'ta eklenti politika ile kendiliginden kurulur."; return; }
+  local u ev d
+  mac_eklenti_yardim
+  echo
+  u=$(konsol_kullanici) && ev=$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  if [ -n "${ev:-}" ]; then
+    d=$(brave_eklenti_durumu "$ev")
+    case "$d" in
+      tamam)        echo "Durum: eklenti butun Brave profillerinde yuklu ve acik." ;;
+      brave-yok)    echo "Durum: Brave bulunamadi." ;;
+      kapali*)      echo "Durum: eklenti yuklu ama kapali (${d#* } profili)." ;;
+      baska-klasor*) echo "Durum: eklenti baska bir klasorden yuklenmis (${d#* } profili). $MAC_EKLENTI'den yukle." ;;
+      *)            echo "Durum: eklenti yuklu degil (${d#* } profili)." ;;
+    esac
+  fi
 }
 
 # ---------- engeller ----------
@@ -291,6 +454,7 @@ uygula() {
 
   eklenti_yaz true
   for h in "${UYGULAMALAR[@]}"; do pkill -ix "$h" 2>/dev/null || true; done
+  mac && brave_bekci
   ag_kur
 }
 
@@ -356,6 +520,7 @@ talep_olustur() {   # $1=islem $2=gun(ara icin) $3=aciklama
 
 kontrol() {
   mkdir -p "$DIR"
+  mac && mac_eklenti_kopyala
   talep_isle
   if [ -f "$BITIS" ] && ! elle_aktif; then
     dosya_sil "$BITIS"; logger "concentra: tek seferlik odak bitti"
@@ -427,6 +592,18 @@ PLIST
   launchctl bootout "system/$LAUNCHD_ETIKET" >/dev/null 2>&1 || true
   launchctl bootstrap system "$LAUNCHD_PLIST"
   echo "concentra: dakikalik kontrol servisi kuruldu ($LAUNCHD_ETIKET)"
+
+  mac_eklenti_kopyala
+  profil_yaz
+  echo
+  if profil_kurulu; then
+    echo "concentra: Brave ayar profili zaten kurulu."
+  else
+    local u; u=$(konsol_kullanici) && launchctl asuser "$(id -u "$u")" sudo -u "$u" open "$PROFIL_DOSYA" >/dev/null 2>&1
+    mac_profil_yardim
+  fi
+  echo
+  mac_eklenti_yardim
 }
 
 kur() {
@@ -446,6 +623,9 @@ kaldir() {
   if mac; then
     launchctl bootout "system/$LAUNCHD_ETIKET" >/dev/null 2>&1 || true
     rm -f "$LAUNCHD_PLIST"
+    profiles remove -identifier "$PROFIL_ID" >/dev/null 2>&1 \
+      || echo "concentra: Brave profilini elle kaldir: System Settings > General > Device Management"
+    echo "concentra: Brave'deki YouTube eklentisini brave://extensions'tan kaldirabilirsin."
   else
     systemctl disable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true
   fi
@@ -467,6 +647,7 @@ concentra $SURUM - odak modu
   odak mola                       $MOLA_DK dk mola (suresi bitise eklenir)
   odak kanal                      YouTube izin listesi
   odak kanal ekle|sil @kanal      listeyi degistirir (sadece odak disinda)
+  odak eklenti                    YouTube eklentisinin kurulumu ve durumu (macOS)
   odak durum                      durum
   odak surum
 
@@ -490,6 +671,11 @@ durum() {
   [ -f "$TALEP" ] && talep_aciklama
   molada && echo "Su an moladasin. Mola bitisi: $(saat "$(cat "$MOLA")")"
   aktif || echo "Su an engel yok."
+  if mac && [ -d "$HOME/Library/Application Support/BraveSoftware" ]; then
+    [ "$(brave_eklenti_durumu "$HOME")" = tamam ] \
+      || echo "Uyari: YouTube eklentisi Brave'de yuklu/acik degil, odak sirasinda Brave kapatilir. Kurulum: odak eklenti"
+  fi
+  return 0
 }
 
 mola() {
@@ -594,6 +780,7 @@ case "${1:-}" in
   --kur)           kur ;;
   --kaldir)        kaldir ;;
   kanal)           kanal "${2:-}" "${3:-}" ;;
+  eklenti)         eklenti_komutu ;;
   mola)            mola ;;
   hafta|full)      plan_ayarla "$1" ;;
   plan)

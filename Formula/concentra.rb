@@ -9,6 +9,7 @@ class Concentra < Formula
   depends_on "bash"
   depends_on "coreutils"
   depends_on "gnu-sed"
+  depends_on "jq"
   depends_on :macos
 
   def install
@@ -16,7 +17,7 @@ class Concentra < Formula
     inreplace "odak", %r{\A#!/usr/bin/env bash}, "#!#{Formula["bash"].opt_bin}/bash"
     bin.install "odak"
     bin.install_symlink "odak" => "concentra"
-    pkgshare.install "concentra.conf"
+    pkgshare.install "concentra.conf", "eklenti"
     doc.install "README.md"
   end
 
@@ -24,7 +25,9 @@ class Concentra < Formula
     <<~EOS
       Kurulumdan (ve her guncellemeden) sonra bir kez calistir:
         sudo odak --kur
-      Bu komut /etc/concentra.conf dosyasini ve dakikalik kontrol servisini kurar.
+      Bu komut /etc/concentra.conf dosyasini ve dakikalik kontrol servisini kurar,
+      Brave ayar profilini acar ve YouTube eklentisinin kurulumunu anlatir
+      (sonradan tekrar gormek icin: odak eklenti).
 
       Kaldirmadan once:
         sudo odak --kaldir

@@ -1,10 +1,13 @@
 // Odak YouTube: odak sirasinda sadece izin listesindeki kanallarin videolari oynar.
-// Ayarlar Brave politikasindan gelir (chrome.storage.managed): { aktif, kanallar }
+// Ayarlar Linux'ta Brave politikasindan (chrome.storage.managed), macOS'ta concentra'nin
+// yazdigi durum.json dosyasindan gelir: { aktif, kanallar, abonelik }
 (() => {
   "use strict";
 
   const BILINMIYOR_MS = 3000;   // kanal bu surede anlasilamazsa video engellenir
+  const YENILE_MS = 5000;       // durum.json bu araliklarla yeniden okunur
   let aktif = false;
+  let abonelik = false;         // abonelik akisi da engellensin mi
   let izinli = new Set();
   let bilinmeyenVideo = null, bilinmeyenBas = 0;
   let zamanlayici = null;
@@ -81,6 +84,9 @@
   // ---------- ana kontrol ----------
   function kontrol() {
     if (!aktif) { perdeKaldir(); return; }
+    if (abonelik && location.pathname.startsWith("/feed/subscriptions")) {
+      perdeGoster("Odak sirasinda abonelik akisi kapali."); return;
+    }
     const v = videoId();
     if (!v || !v.id) { perdeKaldir(); bilinmeyenVideo = null; return; }
 
@@ -98,17 +104,31 @@
     if (Date.now() - bilinmeyenBas > BILINMIYOR_MS) perdeGoster("Kanal anlasilamadi, video engellendi.");
   }
 
+  function uygula(ayar) {
+    aktif = !!(ayar && ayar.aktif);
+    abonelik = !!(ayar && ayar.abonelik);
+    izinli = new Set(((ayar && ayar.kanallar) || []).map(normal));
+    if (aktif && !zamanlayici) zamanlayici = setInterval(kontrol, 300);
+    if (!aktif && zamanlayici) { clearInterval(zamanlayici); zamanlayici = null; }
+    kontrol();
+  }
+
   function ayarlariYukle() {
     chrome.storage.managed.get(null, (ayar) => {
       if (chrome.runtime.lastError) ayar = {};
-      aktif = !!(ayar && ayar.aktif);
-      izinli = new Set(((ayar && ayar.kanallar) || []).map(normal));
-      if (aktif && !zamanlayici) zamanlayici = setInterval(kontrol, 300);
-      if (!aktif && zamanlayici) { clearInterval(zamanlayici); zamanlayici = null; }
-      kontrol();
+      // Linux: politika varsa o gecerli
+      if (ayar && typeof ayar.aktif === "boolean") { uygula(ayar); return; }
+      // macOS: durum.json
+      try {
+        chrome.runtime.sendMessage({ tur: "durum" }, (d) => {
+          if (chrome.runtime.lastError) return;   // eklenti yeniden yukleniyor; sonra tekrar denenir
+          uygula(d || {});
+        });
+      } catch (_) { /* eklenti guncellendi, sayfa yenilenince duzelir */ }
     });
   }
 
   chrome.storage.onChanged.addListener((_degisen, alan) => { if (alan === "managed") ayarlariYukle(); });
   ayarlariYukle();
+  setInterval(ayarlariYukle, YENILE_MS);
 })();
