@@ -53,11 +53,22 @@ git clone https://github.com/Noarex/concentra.git && cd concentra/aur && makepkg
 **macOS (Homebrew):**
 ```
 brew tap noarex/concentra https://github.com/Noarex/concentra
+brew trust noarex/concentra
 brew install concentra
 sudo odak --kur
 ```
 macOS'ta siteler `/etc/hosts`, ag engelleri `pf`, dakikalik kontrol launchd ile yapilir.
 YouTube kanal izin listesi ve abonelik engeli macOS'ta henuz yok.
+
+Güncelleme: `brew update && brew upgrade concentra` (macOS), `git pull` sonrası `makepkg -si` (Arch).
+
+## Yeni sürüm çıkarmak
+
+Değişiklikleri commit'ledikten sonra:
+```
+./surum 1.2.3
+```
+Betik `odak` içindeki sürümü değiştirir, Homebrew formülünü ve PKGBUILD'i yeni commit'e sabitler ve GitHub'a gönderir. Linux'ta ve macOS'ta çalışır.
 
 ## Sınırlar
 

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Yeni surum cikarir: ./surum 1.1.2
+# 1) odak icindeki SURUM'u gunceller ve commit'ler
+# 2) Homebrew formulunu ve PKGBUILD'i o commit'e sabitler, commit'ler
+# 3) GitHub'a gonderir
+# Linux'ta ve macOS'ta calisir (sed yerine perl kullanir).
+set -euo pipefail
+
+yeni="${1:-}"
+if ! [[ "$yeni" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "kullanim: ./surum 1.2.3" >&2; exit 1
+fi
+
+cd "$(dirname "$0")"
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Commit'lenmemis degisiklik var. Once onlari commit'le:" >&2
+  git status --short >&2
+  exit 1
+fi
+
+eski=$(sed -n 's/^SURUM="\(.*\)"$/\1/p' odak)
+if [ "$eski" = "$yeni" ]; then
+  echo "Surum zaten $yeni." >&2; exit 1
+fi
+
+git pull --ff-only
+
+# 1) kod commit'i
+perl -pi -e "s/^SURUM=\".*\"\$/SURUM=\"$yeni\"/" odak
+git commit -qam "$yeni"
+kod=$(git rev-parse HEAD)
+
+# 2) paketleri bu commit'e sabitle
+perl -pi -e "s/revision: \"[0-9a-f]{40}\"/revision: \"$kod\"/; s/^(\s*version) \".*\"/\$1 \"$yeni\"/" Formula/concentra.rb
+perl -pi -e "s/^pkgver=.*/pkgver=$yeni/; s/^pkgrel=.*/pkgrel=1/; s/^_commit=[0-9a-f]{40}/_commit=$kod/" aur/PKGBUILD
+perl -pi -e "s/^(\tpkgver = ).*/\${1}$yeni/; s/^(\tpkgrel = ).*/\${1}1/; s/#commit=[0-9a-f]{40}/#commit=$kod/" aur/.SRCINFO
+git commit -qam "Formul ve PKGBUILD: $yeni"
+
+# 3) gonder
+git push
+
+echo
+echo "concentra $eski -> $yeni yayinda (kod: ${kod:0:7})"
+echo "  macOS:  brew update && brew upgrade concentra"
+echo "  Arch:   git -C ~/concentra pull && cd ~/concentra/aur && makepkg -si"
