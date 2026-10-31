@@ -5,7 +5,7 @@
 # Ayarlar: /etc/concentra.conf ve /etc/concentra.d/*.conf
 
 set -uo pipefail
-SURUM="1.1.0"
+SURUM="1.1.1"
 
 ISLETIM=$(uname -s)
 mac() { [ "$ISLETIM" = Darwin ]; }
@@ -132,6 +132,7 @@ engel_listesi() {
   printf '  - %s\n' "${SITELER[@]}"
   mac && echo "  - (macOS: siteler /etc/hosts ile; YouTube engelleri henuz yok)"
   ! mac && evet_mi "$YT_ABONELIK_ENGELLE" && echo "  - $YT_YOL"
+  ! mac && echo "  - Gizli pencere ve Tor penceresi"
   [ -f "$EKLENTI_DIR/odak-yt.crx" ] && echo "  - YouTube: izin listesi disindaki kanallar ve Shorts"
   evet_mi "$TAILSCALE_ENGELLE" && echo "  - Tailscale uzerinden butun baglantilar"
   [ "${#ENGELLI_IPLER[@]}" -gt 0 ] && echo "  - Su adreslere baglanti: ${ENGELLI_IPLER[*]}"
@@ -260,7 +261,8 @@ uygula() {
   for d in "${CHROMIUM_DIRLER[@]}"; do
     mkdir -p "$d"; f="$d/odak.json"
     kilit_ac "$f"
-    printf '{ "URLBlocklist": %s }\n' "$liste" > "$f"
+    # gizli pencere ve Tor penceresi odak sirasinda kapali (eklenti ve hosts orada calismiyor)
+    printf '{ "URLBlocklist": %s, "IncognitoModeAvailability": 1, "TorDisabled": true }\n' "$liste" > "$f"
     kilitle "$f"
   done
 
@@ -273,7 +275,7 @@ uygula() {
     cp "$FIREFOX_DOSYA" "$FIREFOX_DOSYA.odak-yedek"
   fi
   kilit_ac "$FIREFOX_DOSYA"
-  printf '{ "policies": { "WebsiteFilter": { "Block": [%s] } } }\n' "${ff%,}" > "$FIREFOX_DOSYA"
+  printf '{ "policies": { "WebsiteFilter": { "Block": [%s] }, "DisablePrivateBrowsing": true } }\n' "${ff%,}" > "$FIREFOX_DOSYA"
   kilitle "$FIREFOX_DOSYA"
   touch "$FIREFOX_ISARET"
   fi
