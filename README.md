@@ -1,6 +1,6 @@
 # concentra
 
-Linux (Arch) için planlı odak modu. Belirlediğin saatlerde dikkat dağıtan siteleri, uygulamaları ve YouTube'u engeller. Engeller süre dolmadan kalkmaz, bilgisayarı yeniden başlatsan da geri gelir.
+Linux (Arch) ve MacOs için planlı odak modu. Belirlediğin saatlerde dikkat dağıtan siteleri, uygulamaları ve YouTube'u engeller. Engeller süre dolmadan kalkmaz, bilgisayarı yeniden başlatsan da geri gelir.
 
 Terminal komutu: `odak` (ya da `concentra`).
 
