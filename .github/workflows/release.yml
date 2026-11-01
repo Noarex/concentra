@@ -4,7 +4,7 @@ name: release
 on:
   push:
     branches: [main]
-    paths: [odak]
+    paths: [odak, .github/workflows/release.yml]
   workflow_dispatch:
 permissions:
   contents: write
@@ -19,6 +19,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          guncel=$(sed -n 's/^SURUM="\(.*\)"$/\1/p' odak)
           onceki=""
           for c in $(git log --reverse --format=%H -G '^SURUM=' -- odak); do
             s=$(git show "$c:odak" | sed -n 's/^SURUM="\(.*\)"$/\1/p')
@@ -26,8 +27,10 @@ jobs:
             onceki="$s"
             if gh release view "v$s" >/dev/null 2>&1; then echo "v$s zaten var"; continue; fi
             if git rev-parse -q --verify "refs/tags/v$s" >/dev/null; then
-              gh release create "v$s" --verify-tag --title "concentra $s" --generate-notes
+              gh release create "v$s" --verify-tag --title "concentra $s" --generate-notes --latest=false
             else
-              gh release create "v$s" --target "$c" --title "concentra $s" --generate-notes
+              gh release create "v$s" --target "$c" --title "concentra $s" --generate-notes --latest=false
             fi
           done
+          # "Latest" etiketi hep guncel surumde olsun
+          gh release edit "v$guncel" --latest
