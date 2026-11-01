@@ -1,0 +1,27 @@
+# odak icindeki SURUM degisince o surum icin GitHub release acar.
+name: release
+on:
+  push:
+    branches: [main]
+    paths: [odak]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Release ac
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          surum=$(sed -n 's/^SURUM="\(.*\)"$/\1/p' odak)
+          [ -n "$surum" ] || { echo "SURUM bulunamadi"; exit 1; }
+          if gh release view "v$surum" >/dev/null 2>&1; then
+            echo "v$surum zaten var"; exit 0
+          fi
+          # surumun degistigi commit (./surum'un attigi "X.Y.Z" commit'i)
+          hedef=$(git log -1 --format=%H -S "SURUM=\"$surum\"" -- odak)
+          gh release create "v$surum" --target "$hedef" --title "concentra $surum" --generate-notes

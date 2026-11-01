@@ -3,7 +3,7 @@
 # 1) odak icindeki SURUM'u gunceller ve commit'ler
 # 2) Homebrew formulunu ve PKGBUILD'i o commit'e sabitler, commit'ler
 # 3) GitHub'a gonderir
-# 4) gh varsa GitHub'da release acar
+# 4) GitHub release'i GitHub Actions kendisi acar
 # Linux'ta ve macOS'ta calisir (sed yerine perl kullanir).
 set -euo pipefail
 
@@ -41,12 +41,7 @@ git commit -qam "Formul ve PKGBUILD: $yeni"
 # 3) gonder
 git push
 
-# 4) GitHub release (gh kurulu ve giris yapilmissa)
-if command -v gh >/dev/null && gh release create "v$yeni" --target "$kod" --title "concentra $yeni" --generate-notes >/dev/null; then
-  echo "GitHub release: v$yeni"
-else
-  echo "Uyari: GitHub release acilamadi. Elle: gh release create v$yeni --target $kod --title \"concentra $yeni\" --generate-notes" >&2
-fi
+# 4) GitHub release: GitHub Actions acar (.github/workflows/release.yml)
 
 echo
 echo "concentra $eski -> $yeni yayinda (kod: ${kod:0:7})"
