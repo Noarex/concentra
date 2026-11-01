@@ -59,6 +59,7 @@ MOLA="$DIR/mola"        # molanin bitisi (epoch)
 PLAN="$DIR/plan"        # "hafta" ya da "full"
 TALEP="$DIR/talep"      # bekleyen talep: "<kapat|ara|hafta> <yururluk epoch> [gun]"
 ARA="$DIR/ara"          # plan duraklamasinin bitisi (epoch)
+PLAN_BASLANGIC="$DIR/plan-baslangic"   # ileri tarihli planin baslangici (epoch)
 KANALLAR="$DIR/kanallar"
 ENGEL_ISARET="$DIR/engel-acik"
 FIREFOX_ISARET="$DIR/firefox-yazildi"
@@ -123,12 +124,14 @@ plan_bitis_bugun() {
 }
 
 duraklatildi() { [ -f "$ARA" ] && [ "$(simdi)" -lt "$(cat "$ARA")" ]; }
+plan_bekliyor() { [ -f "$PLAN_BASLANGIC" ] && [ "$(simdi)" -lt "$(cat "$PLAN_BASLANGIC")" ]; }
 elle_aktif()   { [ -f "$BITIS" ] && [ "$(simdi)" -lt "$(cat "$BITIS")" ]; }
 molada()       { [ -f "$MOLA" ] && [ "$(simdi)" -lt "$(cat "$MOLA")" ]; }
 
 plan_aktif() {
   local mod n
   mod=$(plan_modu); [ -n "$mod" ] || return 1
+  plan_bekliyor && return 1
   duraklatildi && return 1
   [[ " $(plan_gunleri "$mod") " == *" $(date +%u) "* ]] || return 1
   n=$(simdi)
@@ -488,7 +491,7 @@ talep_isle() {
   read -r islem zaman gun < "$TALEP"
   [ "$(simdi)" -ge "$zaman" ] || return 0
   case "$islem" in
-    kapat) dosya_sil "$PLAN"; dosya_sil "$ARA" ;;
+    kapat) dosya_sil "$PLAN"; dosya_sil "$ARA"; dosya_sil "$PLAN_BASLANGIC" ;;
     ara)   yaz $(( zaman + gun * 86400 )) "$ARA" ;;
     hafta) yaz hafta "$PLAN" ;;
   esac
@@ -526,6 +529,7 @@ kontrol() {
     dosya_sil "$BITIS"; logger "concentra: tek seferlik odak bitti"
   fi
   find "$DIR" -maxdepth 1 -name 'ek-*' ! -name "ek-$(date +%F)" -delete 2>/dev/null
+  if [ -f "$PLAN_BASLANGIC" ] && ! plan_bekliyor; then dosya_sil "$PLAN_BASLANGIC"; logger "concentra: plan basladi"; fi
 
   if aktif; then
     if molada; then engelleri_kaldir; else dosya_sil "$MOLA"; uygula; fi
@@ -640,6 +644,7 @@ concentra $SURUM - odak modu
   odak 2 | odak 1.5 | odak 45dk   tek seferlik odak (en fazla 24 saat)
   odak hafta                      $(gun_adlari "$HAFTA_GUNLER"), $PLAN_BAS-$PLAN_BIT otomatik odak
   odak full                       $(gun_adlari "$FULL_GUNLER"), $PLAN_BAS-$PLAN_BIT otomatik odak
+  odak full 3g | odak hafta yarin plani ileri bir tarihte baslatir (en fazla 30 gun)
   odak plan kapat                 $BEKLEME_GUN gun sonra plani kapatir
   odak plan ara <gun>             $BEKLEME_GUN gun sonra plani <gun> gun duraklatir (1-$ARA_MAX_GUN), sonra devam eder
   odak plan vazgec                bekleyen talebi geri alir
@@ -665,6 +670,7 @@ durum() {
   mod=$(plan_modu)
   if [ -n "$mod" ]; then
     echo "Plan: $(plan_adi "$mod"), $PLAN_BAS-$PLAN_BIT"
+    plan_bekliyor && echo "Plan $(date -d @"$(cat "$PLAN_BASLANGIC")" '+%d.%m')'de baslayacak. (Hemen baslatmak icin: odak $mod)"
     plan_aktif && echo "Plan su an aktif. Bugunku bitis: $(saat "$(plan_bitis_bugun)")"
     duraklatildi && echo "Plan duraklatildi, $(tarih "$(cat "$ARA")")'de kendiliginden devam edecek. (Hemen devam: odak plan devam)"
   fi
@@ -725,9 +731,29 @@ baslat() {
 }
 
 plan_ayarla() {
-  local yeni="$1" eski
+  local yeni="$1" gecikme="${2:-}" eski gun bas=""
   eski=$(plan_modu)
+
+  # Ileri tarihli baslangic: odak full 3g | odak hafta yarin
+  if [ -n "$gecikme" ]; then
+    [ "$gecikme" = yarin ] && gecikme=1
+    if ! [[ "$gecikme" =~ ^([0-9]{1,2})(g|d|gun)?$ ]] || [ "${BASH_REMATCH[1]}" -lt 1 ] || [ "${BASH_REMATCH[1]}" -gt 30 ]; then
+      echo "Gun sayisi 1-30 arasi olmali. Ornek: odak $yeni 3g (3 gun sonra baslar) | odak $yeni yarin"; exit 1
+    fi
+    gun=$((10#${BASH_REMATCH[1]}))
+    if [ -n "$eski" ]; then
+      echo "Zaten acik bir plan var: $(plan_adi "$eski"). Ileri tarihli baslangic sadece plan yokken kurulur."; exit 1
+    fi
+    bas=$(date -d "today +$gun days 00:00" +%s)
+  fi
+
   if [ "$eski" = "$yeni" ]; then
+    if plan_bekliyor; then
+      echo "Plan $(date -d @"$(cat "$PLAN_BASLANGIC")" '+%d.%m')'de baslayacakti, simdi baslayacak."
+      onay
+      dosya_sil "$PLAN_BASLANGIC"; kontrol
+      echo "Plan basladi."; durum; exit 0
+    fi
     echo "Bu plan zaten acik."
     duraklatildi && echo "Plan duraklatilmis. Hemen devam etmek icin: odak plan devam"
     exit 0
@@ -737,11 +763,16 @@ plan_ayarla() {
     exit 0
   fi
 
-  echo "Otomatik plan: $(plan_adi "$yeni"), $PLAN_BAS-$PLAN_BIT arasi engellenecek:"
+  if [ -n "$bas" ]; then
+    echo "Otomatik plan: $(plan_adi "$yeni"), $(date -d @"$bas" '+%d.%m') tarihinden itibaren $PLAN_BAS-$PLAN_BIT arasi engellenecek:"
+  else
+    echo "Otomatik plan: $(plan_adi "$yeni"), $PLAN_BAS-$PLAN_BIT arasi engellenecek:"
+  fi
   engel_listesi
   echo "Kapatmak ya da gevsetmek $BEKLEME_GUN gun bekleme gerektirir."
   onay
 
+  if [ -n "$bas" ]; then yaz "$bas" "$PLAN_BASLANGIC"; else dosya_sil "$PLAN_BASLANGIC"; fi
   yaz "$yeni" "$PLAN"
   zamanlayiciyi_ac
   kontrol
@@ -782,7 +813,7 @@ case "${1:-}" in
   kanal)           kanal "${2:-}" "${3:-}" ;;
   eklenti)         eklenti_komutu ;;
   mola)            mola ;;
-  hafta|full)      plan_ayarla "$1" ;;
+  hafta|full)      plan_ayarla "$1" "${2:-}" ;;
   plan)
     case "${2:-}" in
       kapat)  plan_kapat ;;

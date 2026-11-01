@@ -21,6 +21,7 @@ Terminal komutu: `odak` (ya da `concentra`).
 | `odak 2` / `odak 1.5` / `odak 45dk` | Tek seferlik odak (en fazla 24 saat) |
 | `odak hafta` | Pazartesi-Cuma otomatik odak (varsayılan 07:30-20:00) |
 | `odak full` | Her gün otomatik odak |
+| `odak full 3g` / `odak hafta yarin` | Planı ileri bir tarihte başlatır (en fazla 30 gün). Plan yokken kurulur, beklerken `odak full` hemen başlatır |
 | `odak plan kapat` | Planı bekleme süresi (varsayılan 3 gün) sonunda kapatır |
 | `odak plan ara <gün>` | Bekleme süresinden sonra planı <gün> gün duraklatır, sonra plan kendiliğinden devam eder |
 | `odak plan vazgec` | Bekleyen talebi geri alır |
