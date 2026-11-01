@@ -125,6 +125,12 @@ plan_bitis_bugun() {
 
 duraklatildi() { [ -f "$ARA" ] && [ "$(simdi)" -lt "$(cat "$ARA")" ]; }
 plan_bekliyor() { [ -f "$PLAN_BASLANGIC" ] && [ "$(simdi)" -lt "$(cat "$PLAN_BASLANGIC")" ]; }
+# Ileri tarihli plan baslamadan kapatma/duraklatma/gevsetme istegi gonderilemez
+baslamadan_gevsetme_yok() {
+  plan_bekliyor || return 0
+  echo "Plan $(date -d @"$(cat "$PLAN_BASLANGIC")" '+%d.%m')'de baslayacak. Baslamadan kapatma, duraklatma ya da gevsetme istegi gonderilemez."
+  exit 1
+}
 elle_aktif()   { [ -f "$BITIS" ] && [ "$(simdi)" -lt "$(cat "$BITIS")" ]; }
 molada()       { [ -f "$MOLA" ] && [ "$(simdi)" -lt "$(cat "$MOLA")" ]; }
 
@@ -834,6 +840,7 @@ plan_ayarla() {
     exit 0
   fi
   if [ "$eski" = full ] && [ "$yeni" = hafta ]; then
+    baslamadan_gevsetme_yok
     talep_olustur hafta "" "Plan full'den hafta moduna gevsetilecek ($(gun_adlari "$HAFTA_GUNLER"))."
     exit 0
   fi
@@ -856,12 +863,14 @@ plan_ayarla() {
 
 plan_kapat() {
   [ -n "$(plan_modu)" ] || { echo "Acik bir plan yok."; exit 0; }
+  baslamadan_gevsetme_yok
   talep_olustur kapat "" "Otomatik plan tamamen kapatilacak."
 }
 
 plan_ara() {
   local gun="${1:-}"
   [ -n "$(plan_modu)" ] || { echo "Acik bir plan yok."; exit 0; }
+  baslamadan_gevsetme_yok
   [[ "$gun" =~ ^[0-9]{1,2}$ ]] && [ "$gun" -ge 1 ] && [ "$gun" -le "$ARA_MAX_GUN" ] \
     || { echo "Gun sayisi 1-$ARA_MAX_GUN arasi olmali. Ornek: odak plan ara 7"; exit 1; }
   duraklatildi && { echo "Plan zaten duraklatilmis."; durum; exit 0; }
