@@ -1,6 +1,6 @@
 pkgbase = concentra
 	pkgdesc = Planli odak modu: siteleri, uygulamalari ve YouTube'u (kanal izin listesiyle) engeller
-	pkgver = 1.4.2
+	pkgver = 1.5.0
 	pkgrel = 1
 	url = https://github.com/Noarex/concentra
 	install = concentra.install
@@ -21,7 +21,7 @@ pkgbase = concentra
 	optdepends = chromium: YouTube kanal izin listesi eklentisi
 	optdepends = firefox: site engelleri (YouTube eklentisi yok)
 	backup = etc/concentra.conf
-	source = concentra::git+https://github.com/Noarex/concentra.git#commit=b72fb0902903af9ae3759912665ac1ed0cd017dc
+	source = concentra::git+https://github.com/Noarex/concentra.git#commit=984d5a246a231e1528e4bd14ad740e20c97e9a45
 	sha256sums = SKIP
 
 pkgname = concentra
