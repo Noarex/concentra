@@ -62,7 +62,7 @@ brew trust noarex/concentra
 brew install concentra
 sudo odak --kur
 ```
-macOS'ta siteler `/etc/hosts`, ağ engelleri `pf`, dakikalık kontrol launchd ile yapılır.
+macOS'ta siteler `/etc/hosts`, ağ engelleri `pf`, 30 saniyelik kontrol launchd ile yapılır.
 
 `sudo odak --kur` iki şey ister, ikisi de bir kerelik:
 - **Brave ayar profili:** gizli pencereyi, Tor penceresini ve misafir modunu kapatır. macOS'ta bunlar profil sabit olduğu için her zaman kapalı kalır, odak dışında da (Linux'ta sadece odak sırasında kapalı). System Settings → General → Device Management'tan onaylanır.

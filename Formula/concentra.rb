@@ -25,7 +25,7 @@ class Concentra < Formula
     <<~EOS
       Kurulumdan (ve her guncellemeden) sonra bir kez calistir:
         sudo odak --kur
-      Bu komut /etc/concentra.conf dosyasini ve dakikalik kontrol servisini kurar,
+      Bu komut /etc/concentra.conf dosyasini ve 30 saniyelik kontrol servisini kurar,
       Brave ayar profilini acar ve YouTube eklentisinin kurulumunu anlatir
       (sonradan tekrar gormek icin: odak eklenti).
 

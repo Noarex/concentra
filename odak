@@ -26,13 +26,14 @@ MOLA_DK=15
 BEKLEME_GUN=3
 ARA_MAX_GUN=14
 
-SITELER=(twitch.tv kick.com x.com twitter.com instagram.com discord.com discord.gg discordapp.com)
+SITELER=(twitch.tv kick.com x.com twitter.com instagram.com discord.com discord.gg discordapp.com tiktok.com)
 HOSTS_ADLAR=(twitch.tv www.twitch.tv m.twitch.tv kick.com www.kick.com x.com www.x.com
              twitter.com www.twitter.com mobile.twitter.com instagram.com www.instagram.com
              discord.com www.discord.com ptb.discord.com canary.discord.com gateway.discord.gg
-             discord.gg discordapp.com cdn.discordapp.com media.discordapp.net)
+             discord.gg discordapp.com cdn.discordapp.com media.discordapp.net
+             tiktok.com www.tiktok.com m.tiktok.com vm.tiktok.com vt.tiktok.com)
 YT_ABONELIK_ENGELLE=evet
-UYGULAMALAR=(Discord DiscordPTB DiscordCanary discord vesktop legcord webcord)
+UYGULAMALAR=(Discord DiscordPTB DiscordCanary discord vesktop legcord webcord TikTok)
 TARAYICILAR=(brave chromium chrome firefox "Brave Browser" "Google Chrome" Safari)
 TAILSCALE_ENGELLE=hayir
 ENGELLI_IPLER=()
@@ -233,6 +234,27 @@ mac_eklenti_kopyala() {
   return 0
 }
 
+# Kullanicinin hic degistirmedigi /etc/concentra.conf, paketteki yeni surumle degistirilir
+# (pacman'in Linux'ta yaptigi gibi). Degistirilmis dosyaya dokunulmaz.
+CONF_DAGITIM="$DIR/concentra.conf.dagitim"   # en son kurulan varsayilan dosyanin kopyasi
+ESKI_VARSAYILANLAR=(09148ba7194a41aed27c57d8173e85672a47630a31b21ec7a1f0051ff3057ea4
+                    6abe2118dcc16324d9f1b849a39fdecc0fb3fee70deda29585a143d6e1edae58
+                    f37df4e9155a5736b7f5b7afbe8c0eb70dede3fcca2dbf173743bb5f6b9db009)
+mac_conf_guncelle() {
+  local yeni h
+  yeni="$(dirname "$(readlink -f "$0")")/../share/concentra/concentra.conf"
+  [ -f "$yeni" ] && [ -f "$CONF" ] || return 0
+  cmp -s "$yeni" "$CONF" && return 0
+  h=$(sha256sum "$CONF" | cut -c1-64)
+  if cmp -s "$CONF" "$CONF_DAGITIM" 2>/dev/null || [[ " ${ESKI_VARSAYILANLAR[*]} " == *" $h "* ]]; then
+    cp -f "$yeni" "$CONF"; cp -f "$yeni" "$CONF_DAGITIM"
+    logger "concentra: $CONF yeni varsayilanlarla guncellendi"
+    # yeni ayarlari bu calismada da kullan
+    . "$CONF"; for _c in "$CONF_DIR"/*.conf; do [ -f "$_c" ] && . "$_c"; done
+  fi
+  return 0
+}
+
 konsol_kullanici() { local u; u=$(/usr/bin/stat -f %Su /dev/console 2>/dev/null); [ -n "$u" ] && [ "$u" != root ] && echo "$u"; }
 
 # Bir Brave profilinde eklentinin durumu: tamam | yok | kapali | baska-klasor
@@ -332,7 +354,7 @@ YouTube eklentisini Brave'e yukle (bir kez, odak disindayken):
        $MAC_EKLENTI
      Enter, sonra "Select".
   Birden fazla Brave profilin varsa her birinde yap. Developer mode acik kalsin.
-  Odak sirasinda eklenti yuklu ve acik degilse Brave her dakika kapatilir.
+  Odak sirasinda eklenti yuklu ve acik degilse Brave kapatilir (30 saniyede bir kontrol edilir).
 EOF
 }
 
@@ -532,7 +554,7 @@ talep_olustur() {   # $1=islem $2=gun(ara icin) $3=aciklama
 
 kontrol() {
   mkdir -p "$DIR"
-  mac && mac_eklenti_kopyala
+  mac && { mac_eklenti_kopyala; mac_conf_guncelle; }
   talep_isle
   if [ -f "$BITIS" ] && ! elle_aktif; then
     dosya_sil "$BITIS"; logger "concentra: tek seferlik odak bitti"
@@ -586,7 +608,9 @@ mac_kur() {
   bin="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
   mkdir -p "$DIR" "$CONF_DIR"
   ornek="$(dirname "$(readlink -f "$0")")/../share/concentra/concentra.conf"
-  if [ ! -f "$CONF" ] && [ -f "$ornek" ]; then cp "$ornek" "$CONF"; echo "concentra: $CONF olusturuldu"; fi
+  if [ ! -f "$CONF" ] && [ -f "$ornek" ]; then
+    cp "$ornek" "$CONF"; cp "$ornek" "$CONF_DAGITIM"; echo "concentra: $CONF olusturuldu"
+  fi
   cat > "$LAUNCHD_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -595,7 +619,7 @@ mac_kur() {
   <key>Label</key><string>$LAUNCHD_ETIKET</string>
   <key>ProgramArguments</key>
   <array><string>$bin</string><string>--kontrol</string></array>
-  <key>StartInterval</key><integer>60</integer>
+  <key>StartInterval</key><integer>30</integer>
   <key>RunAtLoad</key><true/>
   <key>StandardErrorPath</key><string>/var/log/concentra.log</string>
 </dict>
@@ -604,7 +628,7 @@ PLIST
   chown root:wheel "$LAUNCHD_PLIST"; chmod 644 "$LAUNCHD_PLIST"
   launchctl bootout "system/$LAUNCHD_ETIKET" >/dev/null 2>&1 || true
   launchctl bootstrap system "$LAUNCHD_PLIST"
-  echo "concentra: dakikalik kontrol servisi kuruldu ($LAUNCHD_ETIKET)"
+  echo "concentra: kontrol servisi kuruldu, 30 saniyede bir calisir ($LAUNCHD_ETIKET)"
 
   mac_eklenti_kopyala
   profil_yaz
@@ -626,6 +650,7 @@ kur() {
   if [ -d "$CONF_DIR" ]; then for c in "$CONF_DIR"/*.conf; do [ -f "$c" ] && . "$c"; done; fi
   kanallari_hazirla
   if [ -n "$(plan_modu)" ] || [ -f "$BITIS" ]; then zamanlayiciyi_ac; fi
+  mac || { systemctl is-active -q "$ZAMANLAYICI" && systemctl restart "$ZAMANLAYICI"; } 2>/dev/null || true
   kontrol
 }
 
@@ -646,7 +671,7 @@ kaldir() {
   if [ -d "$DIR" ]; then
     if mac; then chflags -R noschg "$DIR" 2>/dev/null; else chattr -R -i "$DIR" 2>/dev/null; fi
   fi
-  echo "concentra: engeller, tarayici politikalari ve dakikalik kontrol kaldirildi."
+  echo "concentra: engeller, tarayici politikalari ve kontrol servisi kaldirildi."
   return 0
 }
 
@@ -671,7 +696,7 @@ tamamen_kaldir() {
   cat <<EOF
 concentra tamamen kaldirilacak:
   - butun engeller, tarayici politikalari ve YouTube eklentisi politikasi
-  - dakikalik kontrol servisi$(mac && echo " ve Brave ayar profili")
+  - kontrol servisi$(mac && echo " ve Brave ayar profili")
   - durum klasoru ($DIR) ve ayarlar ($CONF, $CONF_DIR)
     Ayarlarin once yedeklenir: $yedek
   - concentra paketi ($(mac && echo "brew uninstall" || echo "pacman -R"))

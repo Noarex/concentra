@@ -1,10 +1,10 @@
 [Unit]
-Description=concentra odak modu kontrolu (dakikada bir)
+Description=concentra odak modu kontrolu (30 saniyede bir)
 
 [Timer]
 OnBootSec=5s
-OnUnitActiveSec=1min
-AccuracySec=5s
+OnUnitActiveSec=30s
+AccuracySec=1s
 
 [Install]
 WantedBy=timers.target
