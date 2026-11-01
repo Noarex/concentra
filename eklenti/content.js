@@ -11,6 +11,7 @@
   let izinli = new Set();
   let bilinmeyenVideo = null, bilinmeyenBas = 0;
   let zamanlayici = null;
+  const durdurulan = new WeakSet();   // bizim durdurdugumuz videolar (izin gelince devam eder)
 
   // "/@3Blue1Brown", "https://www.youtube.com/@3blue1brown/videos", "/channel/UCxx" -> "@3blue1brown" | "channel/ucxx"
   function normal(s) {
@@ -72,37 +73,74 @@
     const m = document.createElement("div");
     m.textContent = mesaj;
     d.append(b, m);
-    for (const vid of document.querySelectorAll("video")) {
-      try { vid.pause(); vid.muted = true; } catch (_) {}
+    videolariDurdur(document);
+  }
+  function videolariDurdur(doc) {
+    for (const vid of doc.querySelectorAll("video")) {
+      if (vid.paused) continue;
+      try { vid.pause(); durdurulan.add(vid); } catch (_) {}
     }
   }
+
+  // Kucuk pencere (resim icinde resim / YouTube'un ayri pencere oynaticisi) kapatilir
+  function pipKapat() {
+    try { if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {}); } catch (_) {}
+    try {
+      const pw = window.documentPictureInPicture && window.documentPictureInPicture.window;
+      if (pw) { videolariDurdur(pw.document); pw.close(); }
+    } catch (_) {}
+  }
+
   function perdeKaldir() {
     const d = document.getElementById(PERDE_ID);
     if (d) d.remove();
   }
 
   // ---------- ana kontrol ----------
-  function kontrol() {
-    if (!aktif) { perdeKaldir(); return; }
+  // izinli: bu sayfadaki video oynayabilir | engel: perde | serbest-sayfa: perde yok ama video oynamaz
+  function karar() {
     if (abonelik && location.pathname.startsWith("/feed/subscriptions")) {
-      perdeGoster("Odak sirasinda abonelik akisi kapali."); return;
+      return { tur: "engel", mesaj: "Odak sirasinda abonelik akisi kapali." };
     }
     const v = videoId();
-    if (!v || !v.id) { perdeKaldir(); bilinmeyenVideo = null; return; }
-
-    if (v.tur === "shorts") { perdeGoster("Odak sirasinda Shorts kapali."); return; }
+    if (!v || !v.id) { bilinmeyenVideo = null; return { tur: "serbest-sayfa" }; }
+    if (v.tur === "shorts") return { tur: "engel", mesaj: "Odak sirasinda Shorts kapali." };
 
     const sahip = sahibiBul(v);
     if (sahip) {
       bilinmeyenVideo = null;
-      if (izinli.has(sahip)) perdeKaldir();
-      else perdeGoster("Bu kanal izin listesinde degil (" + sahip + ").");
+      return izinli.has(sahip) ? { tur: "izinli" }
+        : { tur: "engel", mesaj: "Bu kanal izin listesinde degil (" + sahip + ")." };
+    }
+    // Kanal henuz yuklenmedi: kisa bir sure bekle (video oynamaz), sonra engelle
+    if (bilinmeyenVideo !== v.id) { bilinmeyenVideo = v.id; bilinmeyenBas = Date.now(); }
+    if (Date.now() - bilinmeyenBas > BILINMIYOR_MS) return { tur: "engel", mesaj: "Kanal anlasilamadi, video engellendi." };
+    return { tur: "serbest-sayfa" };
+  }
+
+  function kontrol() {
+    if (!aktif) { perdeKaldir(); return; }
+    const k = karar();
+    if (k.tur === "izinli") {
+      perdeKaldir();
+      for (const vid of document.querySelectorAll("video")) {
+        if (durdurulan.has(vid)) { durdurulan.delete(vid); vid.play().catch(() => {}); }
+      }
       return;
     }
-    // Kanal henuz yuklenmedi: kisa bir sure bekle, sonra engelle
-    if (bilinmeyenVideo !== v.id) { bilinmeyenVideo = v.id; bilinmeyenBas = Date.now(); }
-    if (Date.now() - bilinmeyenBas > BILINMIYOR_MS) perdeGoster("Kanal anlasilamadi, video engellendi.");
+    pipKapat();
+    if (k.tur === "engel") { perdeGoster(k.mesaj); return; }
+    // Ana sayfa, arama, kanal sayfasi: gezinmek serbest ama kucuk oynatici ve
+    // uzerine gelince oynayan onizlemeler dahil hicbir video oynamaz
+    perdeKaldir();
+    videolariDurdur(document);
   }
+
+  // Video baslar baslamaz yakala (300 ms beklemeden)
+  document.addEventListener("play", (e) => {
+    if (!aktif || !(e.target instanceof HTMLMediaElement)) return;
+    if (karar().tur !== "izinli") { e.target.pause(); durdurulan.add(e.target); }
+  }, true);
 
   function uygula(ayar) {
     aktif = !!(ayar && ayar.aktif);

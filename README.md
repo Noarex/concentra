@@ -80,4 +80,4 @@ Root yetkin varsa her engeli elle kaldırabilirsin. concentra seni engellemiyor,
 
 ## Eklenti
 
-`eklenti/` klasörü YouTube eklentisinin kaynak kodu. İmzalı `.crx` dosyası GitHub Releases'te yayınlanıyor. İmza anahtarı repoda bulunmuyor.
+`eklenti/` klasörü YouTube eklentisinin kaynak kodu. Linux'ta politikayla kurulan imzalı hali `paket/odak-yt.crx`. İmza anahtarı repoda bulunmuyor.

@@ -22,8 +22,6 @@ pkgbase = concentra
 	optdepends = firefox: site engelleri (YouTube eklentisi yok)
 	backup = etc/concentra.conf
 	source = concentra::git+https://github.com/Noarex/concentra.git#commit=017b5bdefd0344e6fdb011e9989b41b1b2840f33
-	source = odak-yt-1.0.0.crx::https://github.com/Noarex/concentra/releases/download/v1.0.0/odak-yt.crx
 	sha256sums = SKIP
-	sha256sums = 9852b8bcdce5b43ef37684de8167e02d50a76d32ffc291bd20d994e788dc3347
 
 pkgname = concentra
