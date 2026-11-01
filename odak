@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # concentra / odak - planli odak modu
 # Siteleri, uygulamalari ve YouTube'u (kanal izin listesiyle) belirli saatlerde engeller.
-# Komutlar icin: odak yardim
+# Komutlar icin: odak yardim (GitHub: https://github.com/Noarex/concentra)
 # Ayarlar: /etc/concentra.conf ve /etc/concentra.d/*.conf
 
 set -uo pipefail
