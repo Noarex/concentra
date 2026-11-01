@@ -101,7 +101,10 @@ fi
 yaz()       { mkdir -p "$DIR"; kilit_ac "$2"; echo "$1" > "$2"; kilitle "$2"; }
 dosya_sil() { kilit_ac "$1"; rm -f "$1"; }
 saat()      { date -d @"$1" '+%H:%M'; }
-tarih()     { date -d @"$1" '+%d.%m %H:%M'; }
+AYLAR=(x Ocak Subat Mart Nisan Mayis Haziran Temmuz Agustos Eylul Ekim Kasim Aralik)
+GUNLER=(x Pazartesi Sali Carsamba Persembe Cuma Cumartesi Pazar)
+gun()       { local g a h; read -r g a h < <(date -d @"$1" '+%-d %-m %u'); echo "$g ${AYLAR[$a]} ${GUNLER[$h]}"; }   # 2 Kasim Pazartesi
+tarih()     { local g a s; read -r g a s < <(date -d @"$1" '+%-d %-m %H:%M'); echo "$g ${AYLAR[$a]} $s"; }      # 4 Kasim 14:42
 simdi()     { date +%s; }
 onay()      { local c; read -r -p "Onayliyor musun? (evet yaz): " c; [ "$c" = "evet" ] || { echo "Iptal edildi."; exit 0; }; }
 evet_mi()   { case "${1,,}" in evet|yes|true|1) return 0;; *) return 1;; esac; }
@@ -128,7 +131,7 @@ plan_bekliyor() { [ -f "$PLAN_BASLANGIC" ] && [ "$(simdi)" -lt "$(cat "$PLAN_BAS
 # Ileri tarihli plan baslamadan kapatma/duraklatma/gevsetme istegi gonderilemez
 baslamadan_gevsetme_yok() {
   plan_bekliyor || return 0
-  echo "Plan $(date -d @"$(cat "$PLAN_BASLANGIC")" '+%d.%m')'de baslayacak. Baslamadan kapatma, duraklatma ya da gevsetme istegi gonderilemez."
+  echo "Plan $(gun "$(cat "$PLAN_BASLANGIC")") gunu baslayacak. Baslamadan kapatma, duraklatma ya da gevsetme istegi gonderilemez."
   exit 1
 }
 elle_aktif()   { [ -f "$BITIS" ] && [ "$(simdi)" -lt "$(cat "$BITIS")" ]; }
@@ -509,9 +512,9 @@ talep_aciklama() {
   local islem zaman gun
   read -r islem zaman gun < "$TALEP"
   case "$islem" in
-    kapat) echo "Bekleyen talep: plan $(tarih "$zaman")'de kapanacak." ;;
-    ara)   echo "Bekleyen talep: plan $(tarih "$zaman")'den itibaren $gun gun duraklayacak, $(tarih $(( zaman + gun * 86400 )))'de devam edecek." ;;
-    hafta) echo "Bekleyen talep: plan $(tarih "$zaman")'de hafta moduna gececek ($(gun_adlari "$HAFTA_GUNLER"))." ;;
+    kapat) echo "Bekleyen talep: plan kapanacak (tarih: $(tarih "$zaman"))." ;;
+    ara)   echo "Bekleyen talep: plan $gun gun duraklayacak (duraklama: $(tarih "$zaman"), devam: $(tarih $(( zaman + gun * 86400 )))).";;
+    hafta) echo "Bekleyen talep: plan hafta moduna gececek ($(gun_adlari "$HAFTA_GUNLER"); tarih: $(tarih "$zaman"))." ;;
   esac
   echo "Geri almak icin: odak plan vazgec"
 }
@@ -521,7 +524,7 @@ talep_olustur() {   # $1=islem $2=gun(ara icin) $3=aciklama
   if [ -f "$TALEP" ]; then echo "Zaten bekleyen bir talep var."; talep_aciklama; exit 1; fi
   z=$(( $(simdi) + BEKLEME_GUN * 86400 ))
   echo "$3"
-  echo "Bu talep $BEKLEME_GUN gun bekler: $(tarih "$z")'e kadar plan aynen devam eder."
+  echo "Bu talep $BEKLEME_GUN gun bekler, o zamana kadar plan aynen devam eder (tarih: $(tarih "$z"))."
   onay
   yaz "$1 $z ${2:-}" "$TALEP"
   talep_aciklama
@@ -751,9 +754,9 @@ durum() {
   mod=$(plan_modu)
   if [ -n "$mod" ]; then
     echo "Plan: $(plan_adi "$mod"), $PLAN_BAS-$PLAN_BIT"
-    plan_bekliyor && echo "Plan $(date -d @"$(cat "$PLAN_BASLANGIC")" '+%d.%m')'de baslayacak. (Hemen baslatmak icin: odak $mod)"
+    plan_bekliyor && echo "Plan $(gun "$(cat "$PLAN_BASLANGIC")") gunu baslayacak (ilk engel saat $PLAN_BAS). Hemen baslatmak icin: odak $mod"
     plan_aktif && echo "Plan su an aktif. Bugunku bitis: $(saat "$(plan_bitis_bugun)")"
-    duraklatildi && echo "Plan duraklatildi, $(tarih "$(cat "$ARA")")'de kendiliginden devam edecek. (Hemen devam: odak plan devam)"
+    duraklatildi && echo "Plan duraklatildi, kendiliginden devam edecek (tarih: $(tarih "$(cat "$ARA")")). Hemen devam: odak plan devam"
   fi
   [ -f "$TALEP" ] && talep_aciklama
   molada && echo "Su an moladasin. Mola bitisi: $(saat "$(cat "$MOLA")")"
@@ -830,7 +833,7 @@ plan_ayarla() {
 
   if [ "$eski" = "$yeni" ]; then
     if plan_bekliyor; then
-      echo "Plan $(date -d @"$(cat "$PLAN_BASLANGIC")" '+%d.%m')'de baslayacakti, simdi baslayacak."
+      echo "Plan $(gun "$(cat "$PLAN_BASLANGIC")") gunu baslayacakti, simdi baslayacak."
       onay
       dosya_sil "$PLAN_BASLANGIC"; kontrol
       echo "Plan basladi."; durum; exit 0
@@ -846,7 +849,7 @@ plan_ayarla() {
   fi
 
   if [ -n "$bas" ]; then
-    echo "Otomatik plan: $(plan_adi "$yeni"), $(date -d @"$bas" '+%d.%m') tarihinden itibaren $PLAN_BAS-$PLAN_BIT arasi engellenecek:"
+    echo "Otomatik plan: $(plan_adi "$yeni"), $(gun "$bas") gununden itibaren $PLAN_BAS-$PLAN_BIT arasi engellenecek:"
   else
     echo "Otomatik plan: $(plan_adi "$yeni"), $PLAN_BAS-$PLAN_BIT arasi engellenecek:"
   fi
