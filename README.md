@@ -2,6 +2,8 @@
 
 Linux (Arch) ve MacOS için planlı odak modu. Belirlediğin saatlerde dikkat dağıtan siteleri, uygulamaları ve YouTube'u engeller. Engeller süre dolmadan kalkmaz, bilgisayarı yeniden başlatsan da geri gelir.
 
+Concentra tamamen engellenemez değildir, sudo yetkisi ile her an kaldırılabilir.
+
 Terminal komutu: `odak` (ya da `concentra`).
 
 ## Ne engelliyor
@@ -65,7 +67,3 @@ macOS'ta siteler `/etc/hosts`, ağ engelleri `pf`, dakikalık kontrol launchd il
 - **YouTube eklentisi:** macOS, MDM'e bağlı olmayan Mac'lerde Web Store dışı eklentiyi zorla kurdurmuyor. Bu yüzden eklenti Brave'e elle "Load unpacked" ile yüklenir (`odak eklenti` adımları gösterir). Odak sırasında eklenti her Brave profilinde yüklü ve açık değilse Brave kapatılır.
 
 Güncelleme: `brew update && brew upgrade concentra` (macOS), `git pull` sonrası `makepkg -si` (Arch).
-
-## Sınırlar
-
-Root yetkin varsa her engeli elle kaldırabilirsin. concentra seni engellemiyor, anlık hevesle vazgeçmeyi zorlaştırıyor.
