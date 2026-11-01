@@ -2,8 +2,8 @@ class Concentra < Formula
   desc "Planli odak modu: siteleri ve uygulamalari belirli saatlerde engeller"
   homepage "https://github.com/Noarex/concentra"
   url "https://github.com/Noarex/concentra.git",
-      revision: "0facaa2c69b65430c1d5abc3007a9748042c9666"
-  version "1.4.0"
+      revision: "62d509b844c694235e816065fb0a4c2092c321ed"
+  version "1.4.1"
   license "MIT"
 
   depends_on "bash"
