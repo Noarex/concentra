@@ -1,10 +1,12 @@
 # odak icindeki SURUM her degistiginde o surum icin GitHub release acar.
 # Eksik kalmis eski surumleri de (eskiden yeniye) tamamlar.
+# Release notu notlar/<surum>.md dosyasindan gelir (yoksa GitHub kendisi olusturur);
+# dosya degisirse mevcut release'in notu da guncellenir.
 name: release
 on:
   push:
     branches: [main]
-    paths: [odak, .github/workflows/release.yml]
+    paths: [odak, 'notlar/**', .github/workflows/release.yml]
   workflow_dispatch:
 permissions:
   contents: write
@@ -25,11 +27,18 @@ jobs:
             s=$(git show "$c:odak" | sed -n 's/^SURUM="\(.*\)"$/\1/p')
             [ -n "$s" ] && [ "$s" != "$onceki" ] || continue
             onceki="$s"
-            if gh release view "v$s" >/dev/null 2>&1; then echo "v$s zaten var"; continue; fi
+            not="notlar/$s.md"
+            if gh release view "v$s" >/dev/null 2>&1; then
+              if [ -f "$not" ] && [ "$(gh release view "v$s" --json body -q .body)" != "$(cat "$not")" ]; then
+                gh release edit "v$s" --notes-file "$not"; echo "v$s notu guncellendi"
+              fi
+              continue
+            fi
+            if [ -f "$not" ]; then notlar=(--notes-file "$not"); else notlar=(--generate-notes); fi
             if git rev-parse -q --verify "refs/tags/v$s" >/dev/null; then
-              gh release create "v$s" --verify-tag --title "concentra $s" --generate-notes --latest=false
+              gh release create "v$s" --verify-tag --title "concentra $s" "${notlar[@]}" --latest=false
             else
-              gh release create "v$s" --target "$c" --title "concentra $s" --generate-notes --latest=false
+              gh release create "v$s" --target "$c" --title "concentra $s" "${notlar[@]}" --latest=false
             fi
           done
           # "Latest" etiketi hep guncel surumde olsun

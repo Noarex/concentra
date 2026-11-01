@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Yeni surum cikarir: ./surum 1.1.2
+# Yeni surum cikarir: ./surum 1.1.2 ["release notu"]
+# Not notlar/<surum>.md dosyasina yazilir (dosya onceden hazirlanmissa o kullanilir).
 # 1) odak icindeki SURUM'u gunceller ve commit'ler
 # 2) Homebrew formulunu ve PKGBUILD'i o commit'e sabitler, commit'ler
 # 3) GitHub'a gonderir
@@ -9,14 +10,15 @@ set -euo pipefail
 
 yeni="${1:-}"
 if ! [[ "$yeni" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "kullanim: ./surum 1.2.3" >&2; exit 1
+  echo "kullanim: ./surum 1.2.3 [\"release notu\"]" >&2; exit 1
 fi
 
 cd "$(dirname "$0")"
 
-if [ -n "$(git status --porcelain)" ]; then
+# onceden hazirlanmis notlar/<surum>.md disinda commit'lenmemis degisiklik olmamali
+if [ -n "$(git status --porcelain -- . ":(exclude)notlar/$yeni.md")" ]; then
   echo "Commit'lenmemis degisiklik var. Once onlari commit'le:" >&2
-  git status --short >&2
+  git status --short -- . ":(exclude)notlar/$yeni.md" >&2
   exit 1
 fi
 
@@ -27,9 +29,13 @@ fi
 
 git pull --ff-only
 
-# 1) kod commit'i
+# 1) kod commit'i (release notuyla birlikte)
 perl -pi -e "s/^SURUM=\".*\"\$/SURUM=\"$yeni\"/" odak
-git commit -qam "$yeni"
+mkdir -p notlar
+if [ -n "${2:-}" ]; then printf '%s\n' "$2" > "notlar/$yeni.md"; fi
+[ -f "notlar/$yeni.md" ] || echo "Uyari: notlar/$yeni.md yok, release notunu GitHub olusturacak." >&2
+git add odak notlar
+git commit -qm "$yeni"
 kod=$(git rev-parse HEAD)
 
 # 2) paketleri bu commit'e sabitle
