@@ -61,23 +61,11 @@ sudo odak --kur
 macOS'ta siteler `/etc/hosts`, ağ engelleri `pf`, dakikalık kontrol launchd ile yapılır.
 
 `sudo odak --kur` iki şey ister, ikisi de bir kerelik:
-- **Brave ayar profili:** gizli pencereyi, Tor penceresini ve misafir modunu kapatır (her zaman, odak dışında da). System Settings → General → Device Management'tan onaylanır.
+- **Brave ayar profili:** gizli pencereyi, Tor penceresini ve misafir modunu kapatır. macOS'ta bunlar profil sabit olduğu için her zaman kapalı kalır, odak dışında da (Linux'ta sadece odak sırasında kapalı). System Settings → General → Device Management'tan onaylanır.
 - **YouTube eklentisi:** macOS, MDM'e bağlı olmayan Mac'lerde Web Store dışı eklentiyi zorla kurdurmuyor. Bu yüzden eklenti Brave'e elle "Load unpacked" ile yüklenir (`odak eklenti` adımları gösterir). Odak sırasında eklenti her Brave profilinde yüklü ve açık değilse Brave kapatılır.
 
 Güncelleme: `brew update && brew upgrade concentra` (macOS), `git pull` sonrası `makepkg -si` (Arch).
 
-## Yeni sürüm çıkarmak
-
-Değişiklikleri commit'ledikten sonra:
-```
-./surum 1.2.3
-```
-Betik `odak` içindeki sürümü değiştirir, Homebrew formülünü ve PKGBUILD'i yeni commit'e sabitler ve GitHub'a gönderir. Linux'ta ve macOS'ta çalışır.
-
 ## Sınırlar
 
 Root yetkin varsa her engeli elle kaldırabilirsin. concentra seni engellemiyor, anlık hevesle vazgeçmeyi zorlaştırıyor.
-
-## Eklenti
-
-`eklenti/` klasörü YouTube eklentisinin kaynak kodu. Linux'ta politikayla kurulan imzalı hali `paket/odak-yt.crx`. İmza anahtarı repoda bulunmuyor.
