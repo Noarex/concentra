@@ -31,6 +31,7 @@ Terminal komutu: `odak` (ya da `concentra`).
 | `odak kanal ekle\|sil @kanal` | Listeyi değiştirir (sadece odak dışında) |
 | `odak eklenti` | YouTube eklentisinin kurulumu ve durumu (macOS) |
 | `odak durum` | Durum |
+| `odak kaldir` | concentra'yı tamamen kaldırır: engeller, tarayıcı ayarları, servis, ayarlar ve paket. Ayarlar önce ev klasörüne yedeklenir. Odak ya da plan açıkken çalışmaz |
 | `odak yardim` | Komut listesi |
 
 Planı sıkılaştırmak (hafta → full, `vazgec`, `devam`) anında uygulanır. Gevşetmek (kapat, ara, full → hafta) bekleme süresi gerektirir.

@@ -620,6 +620,7 @@ kur() {
   kontrol
 }
 
+# Paket kaldirilirken (pacman pre_remove) ya da tamamen_kaldir icinden: engelleri ve servisleri kaldirir
 kaldir() {
   local d
   engelleri_kaldir
@@ -629,11 +630,84 @@ kaldir() {
     rm -f "$LAUNCHD_PLIST"
     profiles remove -identifier "$PROFIL_ID" >/dev/null 2>&1 \
       || echo "concentra: Brave profilini elle kaldir: System Settings > General > Device Management"
-    echo "concentra: Brave'deki YouTube eklentisini brave://extensions'tan kaldirabilirsin."
   else
     systemctl disable --now "$ZAMANLAYICI" >/dev/null 2>&1 || true
   fi
-  echo "concentra: engeller ve eklenti politikasi kaldirildi. Durum $DIR icinde duruyor."
+  # durum dosyalarinin kilidini ac (artik bir sey korumuyorlar, elle silinebilsinler)
+  if [ -d "$DIR" ]; then
+    if mac; then chflags -R noschg "$DIR" 2>/dev/null; else chattr -R -i "$DIR" 2>/dev/null; fi
+  fi
+  echo "concentra: engeller, tarayici politikalari ve dakikalik kontrol kaldirildi."
+  return 0
+}
+
+kullanici_evi() {
+  local u="${SUDO_USER:-}"
+  [ -n "$u" ] && [ "$u" != root ] || return 1
+  if mac; then dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}'
+  else getent passwd "$u" | cut -d: -f6; fi
+}
+
+# odak kaldir: concentra'yi kurulmadan onceki haline dondurur (paket dahil)
+tamamen_kaldir() {
+  local ev yedek d dosyalar=()
+  if elle_aktif; then
+    echo "Odak suruyor (bitis: $(saat "$(cat "$BITIS")")). Kaldirmak icin bitmesini bekle."; exit 1
+  fi
+  if [ -n "$(plan_modu)" ]; then
+    echo "Acik bir plan var: $(plan_adi "$(plan_modu)"). Once plani kapat: odak plan kapat ($BEKLEME_GUN gun bekler)."; exit 1
+  fi
+  ev=$(kullanici_evi) || ev=""
+  yedek="${ev:-/root}/concentra-ayarlar-$(date +%F).tar.gz"
+  cat <<EOF
+concentra tamamen kaldirilacak:
+  - butun engeller, tarayici politikalari ve YouTube eklentisi politikasi
+  - dakikalik kontrol servisi$(mac && echo " ve Brave ayar profili")
+  - durum klasoru ($DIR) ve ayarlar ($CONF, $CONF_DIR)
+    Ayarlarin once yedeklenir: $yedek
+  - concentra paketi ($(mac && echo "brew uninstall" || echo "pacman -R"))
+EOF
+  onay
+
+  kaldir
+  # ayarlari yedekle, sonra sil
+  if [ -f "$CONF" ] || [ -n "$(ls -A "$CONF_DIR" 2>/dev/null)" ]; then
+    [ -f "$CONF" ] && dosyalar+=(concentra.conf)
+    [ -d "$CONF_DIR" ] && dosyalar+=(concentra.d)
+    tar czf "$yedek" -C /etc "${dosyalar[@]}" 2>/dev/null \
+      && { [ -n "$ev" ] && chown "$SUDO_USER" "$yedek"; echo "concentra: ayarlar yedeklendi: $yedek"; }
+  fi
+  rm -rf "$CONF" "$CONF.pacsave" "$CONF.pacnew" "$CONF_DIR"
+  rm -rf "$DIR"
+  # concentra'nin actigi bos politika klasorlerini temizle (icinde baska bir sey varsa dokunmaz)
+  for d in "${CHROMIUM_DIRLER[@]}" "$FIREFOX_DIR"; do
+    [ -d "$d" ] && rmdir -p --ignore-fail-on-non-empty "$d" 2>/dev/null
+  done
+  mac && rm -f /var/log/concentra.log
+  echo "concentra: durum ve ayarlar silindi."
+
+  if mac; then
+    cat <<EOF
+
+Brave'de elle yaptiklarin:
+  - brave://extensions'tan "Odak YouTube"u kaldir (Remove).
+  - Istersen Developer mode'u kapat.
+EOF
+    if [ -n "${SUDO_USER:-}" ] && command -v brew >/dev/null; then
+      sudo -u "$SUDO_USER" -H brew uninstall concentra >/dev/null 2>&1 \
+        && sudo -u "$SUDO_USER" -H brew untap noarex/concentra >/dev/null 2>&1
+      echo "concentra: Homebrew paketi kaldirildi."
+    else
+      echo "Son adim: brew uninstall concentra && brew untap noarex/concentra"
+    fi
+  else
+    echo "concentra: Brave'deki YouTube eklentisi, politika kalktigi icin kendiliginden silinir."
+    if pacman -Q concentra >/dev/null 2>&1; then
+      echo "concentra: paket kaldiriliyor..."
+      exec pacman -R --noconfirm concentra
+    fi
+  fi
+  exit 0
 }
 
 # ---------- komutlar ----------
@@ -654,6 +728,7 @@ concentra $SURUM - odak modu
   odak kanal ekle|sil @kanal      listeyi degistirir (sadece odak disinda)
   odak eklenti                    YouTube eklentisinin kurulumu ve durumu (macOS)
   odak durum                      durum
+  odak kaldir                     concentra'yi tamamen kaldirir (odak ve plan kapaliyken)
   odak surum
 
 Ayarlar: $CONF ve $CONF_DIR/*.conf
@@ -810,6 +885,7 @@ case "${1:-}" in
   --kontrol)       kontrol ;;
   --kur)           kur ;;
   --kaldir)        kaldir ;;
+  kaldir)          tamamen_kaldir ;;
   kanal)           kanal "${2:-}" "${3:-}" ;;
   eklenti)         eklenti_komutu ;;
   mola)            mola ;;

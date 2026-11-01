@@ -17,4 +17,7 @@ pre_remove() {
 
 post_remove() {
   systemctl daemon-reload
+  echo ">> Ayarlar ve durum yerinde kaldi. Silmek icin:"
+  echo ">>   sudo rm -rf /var/lib/concentra /etc/concentra.d /etc/concentra.conf.pacsave"
+  echo ">> (Her seyi tek seferde kaldirmak icin bir dahakine: sudo odak kaldir)"
 }

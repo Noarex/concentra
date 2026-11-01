@@ -29,8 +29,8 @@ class Concentra < Formula
       Brave ayar profilini acar ve YouTube eklentisinin kurulumunu anlatir
       (sonradan tekrar gormek icin: odak eklenti).
 
-      Kaldirmadan once:
-        sudo odak --kaldir
+      Kaldirmak icin (engelleri, ayarlari ve bu paketi kaldirir):
+        sudo odak kaldir
     EOS
   end
 
