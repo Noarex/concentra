@@ -1,7 +1,23 @@
 {
   "type": "object",
   "properties": {
-    "aktif":    { "type": "boolean" },
-    "kanallar": { "type": "array", "items": { "type": "string" } }
+    "aktif": {
+      "type": "boolean"
+    },
+    "kanallar": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "siteler": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "abonelik": {
+      "type": "boolean"
+    }
   }
 }

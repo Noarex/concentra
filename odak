@@ -170,21 +170,40 @@ kanal_listesi() {
 
 # aktif=true: sadece izinli kanallar oynar; false: eklenti bekler. Dosya hep yerinde kalir,
 # yoksa tarayici eklentiyi kaldirir. Icerik degismediyse yazmaz.
+# Eklentinin tarayici icinde engelleyecegi alan adlari (alt alan adlari dahil):
+# siteler + hosts listesi + bilinen icerik sunuculari (yayin, resim vb.)
+engel_alanlari() {
+  local a
+  for a in "${SITELER[@]}" "${HOSTS_ADLAR[@]}"; do
+    [[ "$a" == */* ]] && continue
+    a="${a,,}"; a="${a#www.}"; a="${a#m.}"; a="${a#mobile.}"
+    echo "$a"
+    case "$a" in
+      twitch.tv)    echo ttvnw.net; echo jtvnw.net ;;
+      x.com|twitter.com) echo twimg.com ;;
+      instagram.com) echo cdninstagram.com ;;
+      tiktok.com)   echo tiktokcdn.com; echo tiktokv.com ;;
+      discord.com)  echo discordapp.net ;;
+    esac
+  done | sort -u
+}
+
 eklenti_yaz() {
-  local durum="$1" kl="" k d f icerik ab=false
+  local durum="$1" kl="" sl="" k d f icerik ab=false
   while IFS= read -r k; do kl+="\"$k\","; done < <(kanal_listesi)
+  while IFS= read -r k; do [ -n "$k" ] && sl+="\"$k\","; done < <(engel_alanlari)
   if mac; then
     [ -f "$MAC_EKLENTI/manifest.json" ] || return 0
     evet_mi "$YT_ABONELIK_ENGELLE" && ab=true
-    icerik=$(printf '{ "aktif": %s, "abonelik": %s, "kanallar": [%s] }' "$durum" "$ab" "${kl%,}")
+    icerik=$(printf '{ "aktif": %s, "abonelik": %s, "kanallar": [%s], "siteler": [%s] }' "$durum" "$ab" "${kl%,}" "${sl%,}")
     f="$MAC_EKLENTI/durum.json"
     [ -f "$f" ] && [ "$(cat "$f")" = "$icerik" ] && return 0
     echo "$icerik" > "$f.yeni" && chmod 644 "$f.yeni" && mv -f "$f.yeni" "$f"
     return 0
   fi
   [ -f "$EKLENTI_DIR/odak-yt.crx" ] || return 0
-  icerik=$(printf '{ "ExtensionInstallForcelist": ["%s;file://%s/updates.xml"], "3rdparty": { "extensions": { "%s": { "aktif": %s, "kanallar": [%s] } } } }' \
-    "$EKLENTI_ID" "$EKLENTI_DIR" "$EKLENTI_ID" "$durum" "${kl%,}")
+  icerik=$(printf '{ "ExtensionInstallForcelist": ["%s;file://%s/updates.xml"], "3rdparty": { "extensions": { "%s": { "aktif": %s, "kanallar": [%s], "siteler": [%s] } } } }' \
+    "$EKLENTI_ID" "$EKLENTI_DIR" "$EKLENTI_ID" "$durum" "${kl%,}" "${sl%,}")
   for d in "${CHROMIUM_DIRLER[@]}"; do
     mkdir -p "$d"; f="$d/odak-eklenti.json"
     [ -f "$f" ] && [ "$(cat "$f")" = "$icerik" ] && continue
