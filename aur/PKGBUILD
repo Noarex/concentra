@@ -1,6 +1,6 @@
 # Maintainer: Noarex <https://github.com/Noarex>
 pkgname=concentra
-pkgver=1.6.0
+pkgver=1.7.0
 pkgrel=1
 pkgdesc="Planli odak modu: siteleri, uygulamalari ve YouTube'u (kanal izin listesiyle) engeller"
 arch=('any')
@@ -13,7 +13,7 @@ optdepends=('brave-bin: YouTube kanal izin listesi eklentisi'
             'firefox: site engelleri (YouTube eklentisi yok)')
 backup=('etc/concentra.conf')
 install=concentra.install
-_commit=fe54f0f94515ef871bfa0bc21757911cad1880c0   # bu surumun kodu
+_commit=b7be168df2b6e274797b213f56e8991dae06c9cf   # bu surumun kodu
 source=("$pkgname::git+https://github.com/Noarex/concentra.git#commit=$_commit")
 sha256sums=('SKIP')
 
