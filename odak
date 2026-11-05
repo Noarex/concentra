@@ -61,6 +61,7 @@ PLAN="$DIR/plan"        # "hafta" ya da "full"
 TALEP="$DIR/talep"      # bekleyen talep: "<kapat|ara|hafta> <yururluk epoch> [gun]"
 ARA="$DIR/ara"          # plan duraklamasinin bitisi (epoch)
 PLAN_BASLANGIC="$DIR/plan-baslangic"   # ileri tarihli planin baslangici (epoch)
+GUN="$DIR/gun"          # tek gunluk program: "<baslangic epoch> <bitis epoch>"
 KANALLAR="$DIR/kanallar"
 ENGEL_ISARET="$DIR/engel-acik"
 FIREFOX_ISARET="$DIR/firefox-yazildi"
@@ -147,7 +148,9 @@ plan_aktif() {
   n=$(simdi)
   [ "$n" -ge "$(date -d "today $PLAN_BAS" +%s)" ] && [ "$n" -lt "$(plan_bitis_bugun)" ]
 }
-aktif() { elle_aktif || plan_aktif; }
+gun_aktif()    { local b e; [ -f "$GUN" ] && read -r b e < "$GUN" && [ "$(simdi)" -ge "$b" ] && [ "$(simdi)" -lt "$e" ]; }
+gun_bekliyor() { local b e; [ -f "$GUN" ] && read -r b e < "$GUN" && [ "$(simdi)" -lt "$b" ]; }
+aktif() { elle_aktif || plan_aktif || gun_aktif; }
 
 engel_listesi() {
   printf '  - %s\n' "${SITELER[@]}"
@@ -575,6 +578,9 @@ kontrol() {
   mkdir -p "$DIR"
   mac && { mac_eklenti_kopyala; mac_conf_guncelle; }
   talep_isle
+  if [ -f "$GUN" ] && ! gun_aktif && ! gun_bekliyor; then
+    dosya_sil "$GUN"; logger "concentra: gunluk program bitti"
+  fi
   if [ -f "$BITIS" ] && ! elle_aktif; then
     dosya_sil "$BITIS"; logger "concentra: tek seferlik odak bitti"
   fi
@@ -586,7 +592,7 @@ kontrol() {
   else
     dosya_sil "$MOLA"
     engelleri_kaldir
-    [ -n "$(plan_modu)" ] || zamanlayiciyi_kapat
+    [ -n "$(plan_modu)" ] || [ -f "$GUN" ] || zamanlayiciyi_kapat
   fi
 }
 
@@ -668,7 +674,7 @@ kur() {
   # tasima yeni bir ayar dosyasi yazmis olabilir, yeniden oku
   if [ -d "$CONF_DIR" ]; then for c in "$CONF_DIR"/*.conf; do [ -f "$c" ] && . "$c"; done; fi
   kanallari_hazirla
-  if [ -n "$(plan_modu)" ] || [ -f "$BITIS" ]; then zamanlayiciyi_ac; fi
+  if [ -n "$(plan_modu)" ] || [ -f "$BITIS" ] || [ -f "$GUN" ]; then zamanlayiciyi_ac; fi
   mac || { systemctl is-active -q "$ZAMANLAYICI" && systemctl restart "$ZAMANLAYICI"; } 2>/dev/null || true
   kontrol
 }
@@ -709,6 +715,9 @@ tamamen_kaldir() {
   fi
   if [ -n "$(plan_modu)" ]; then
     echo "Acik bir plan var: $(plan_adi "$(plan_modu)"). Once plani kapat: odak plan kapat ($BEKLEME_GUN gun bekler)."; exit 1
+  fi
+  if [ -f "$GUN" ]; then
+    echo "Gunluk program var ($(gun_araligi)). Kaldirmak icin bitmesini bekle."; exit 1
   fi
   ev=$(kullanici_evi) || ev=""
   yedek="${ev:-/root}/concentra-ayarlar-$(date +%F).tar.gz"
@@ -772,6 +781,7 @@ concentra $SURUM - odak modu
   odak hafta                      $(gun_adlari "$HAFTA_GUNLER"), $PLAN_BAS-$PLAN_BIT otomatik odak
   odak full                       $(gun_adlari "$FULL_GUNLER"), $PLAN_BAS-$PLAN_BIT otomatik odak
   odak full 3g | odak hafta yarin plani ileri bir tarihte baslatir (en fazla 30 gun)
+  odak gun | odak gun yarin       tek gunluk program, $PLAN_BAS-$PLAN_BIT (saat gectiyse yarin)
   odak plan kapat                 $BEKLEME_GUN gun sonra plani kapatir
   odak plan ara <gun>             $BEKLEME_GUN gun sonra plani <gun> gun duraklatir (1-$ARA_MAX_GUN), sonra devam eder
   odak plan vazgec                bekleyen talebi geri alir
@@ -802,6 +812,8 @@ durum() {
     plan_aktif && echo "Plan su an aktif. Bugunku bitis: $(saat "$(plan_bitis_bugun)")"
     duraklatildi && echo "Plan duraklatildi, kendiliginden devam edecek (tarih: $(tarih "$(cat "$ARA")")). Hemen devam: odak plan devam"
   fi
+  gun_aktif && echo "Gunluk program suruyor: $(gun_araligi)"
+  gun_bekliyor && echo "Gunluk program: $(gun_araligi)"
   [ -f "$TALEP" ] && talep_aciklama
   molada && echo "Su an moladasin. Mola bitisi: $(saat "$(cat "$MOLA")")"
   aktif || echo "Su an engel yok."
@@ -822,6 +834,11 @@ mola() {
     yaz $(( $(cat "$BITIS") + MOLA_SN )) "$BITIS"
     echo "Tek seferlik odagin yeni bitisi: $(saat "$(cat "$BITIS")")"
   fi
+  if gun_aktif; then
+    local b e; read -r b e < "$GUN"
+    yaz "$b $(( e + MOLA_SN ))" "$GUN"
+    echo "Gunluk programin yeni bitisi: $(saat $(( e + MOLA_SN )))"
+  fi
   if plan_aktif; then
     [ -f "$(ek_dosya)" ] && ek=$(cat "$(ek_dosya)")
     yaz $(( ek + MOLA_SN )) "$(ek_dosya)"
@@ -830,6 +847,41 @@ mola() {
   yaz "$m" "$MOLA"
   engelleri_kaldir
   echo "$MOLA_DK dakikalik mola basladi. Mola bitisi: $(saat "$m")"
+}
+
+gun_araligi() { local b e; read -r b e < "$GUN"; echo "$(gun "$b") $(saat "$b")-$(saat "$e")"; }
+
+# odak gun [yarin]: tek gunluk PLAN_BAS-PLAN_BIT programi. Bugunun saati gectiyse yarina kurulur.
+gun_programi() {
+  local b e n
+  n=$(simdi)
+  if [ "${1:-}" = yarin ]; then
+    b=$(date -d "tomorrow $PLAN_BAS" +%s); e=$(date -d "tomorrow $PLAN_BIT" +%s)
+  elif [ -n "${1:-}" ]; then
+    echo "Kullanim: odak gun | odak gun yarin"; exit 1
+  else
+    b=$(date -d "today $PLAN_BAS" +%s); e=$(date -d "today $PLAN_BIT" +%s)
+    if [ "$n" -ge "$e" ]; then
+      b=$(date -d "tomorrow $PLAN_BAS" +%s); e=$(date -d "tomorrow $PLAN_BIT" +%s)
+    fi
+  fi
+  [ "$b" -lt "$n" ] && b=$n                       # saat icindeyse hemen basla
+  if [ -f "$GUN" ] && { gun_aktif || gun_bekliyor; }; then
+    echo "Zaten bir gunluk program var: $(gun_araligi)"; exit 0
+  fi
+  if [ "$b" -le "$n" ]; then
+    echo "Gunluk program simdi basliyor, bitis $(saat "$e"). O saate kadar engellenecek:"
+  else
+    echo "Gunluk program: $(gun "$b") $(saat "$b")-$(saat "$e"). Bu saatlerde engellenecek:"
+  fi
+  engel_listesi
+  echo "Program bitmeden geri alinamaz. Mola icin: odak mola"
+  onay
+
+  yaz "$b $e" "$GUN"
+  zamanlayiciyi_ac
+  kontrol
+  echo "Gunluk program kuruldu."; durum
 }
 
 baslat() {
@@ -946,6 +998,7 @@ case "${1:-}" in
   eklenti)         eklenti_komutu ;;
   mola)            mola ;;
   hafta|full)      plan_ayarla "$1" "${2:-}" ;;
+  gun)             gun_programi "${2:-}" ;;
   plan)
     case "${2:-}" in
       kapat)  plan_kapat ;;
