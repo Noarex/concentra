@@ -151,19 +151,30 @@
     kontrol();
   }
 
+  function arkaPlandanSor() {
+    // macOS: durum.json (arka plan okur)
+    try {
+      chrome.runtime.sendMessage({ tur: "durum" }, (d) => {
+        if (chrome.runtime.lastError) return;   // eklenti yeniden yukleniyor; sonra tekrar denenir
+        if (d) uygula(d);                       // okunamadiysa mevcut durumu koru
+      });
+    } catch (_) { /* eklenti guncellendi, sayfa yenilenince duzelir */ }
+  }
+
   function ayarlariYukle() {
-    chrome.storage.managed.get(null, (ayar) => {
-      if (chrome.runtime.lastError) ayar = {};
-      // Linux: politika varsa o gecerli
-      if (ayar && typeof ayar.aktif === "boolean") { uygula(ayar); return; }
-      // macOS: durum.json
-      try {
-        chrome.runtime.sendMessage({ tur: "durum" }, (d) => {
-          if (chrome.runtime.lastError) return;   // eklenti yeniden yukleniyor; sonra tekrar denenir
-          uygula(d || {});
-        });
-      } catch (_) { /* eklenti guncellendi, sayfa yenilenince duzelir */ }
-    });
+    let cevaplandi = false;
+    // politika okuma cevap vermezse (macOS'ta olabiliyor) arka plana sor
+    const yedek = setTimeout(() => { if (!cevaplandi) { cevaplandi = true; arkaPlandanSor(); } }, 2000);
+    try {
+      chrome.storage.managed.get(null, (ayar) => {
+        if (cevaplandi) return;
+        cevaplandi = true; clearTimeout(yedek);
+        if (chrome.runtime.lastError) ayar = {};
+        // Linux: politika varsa o gecerli
+        if (ayar && typeof ayar.aktif === "boolean") { uygula(ayar); return; }
+        arkaPlandanSor();
+      });
+    } catch (_) { cevaplandi = true; clearTimeout(yedek); arkaPlandanSor(); }
   }
 
   chrome.storage.onChanged.addListener((_degisen, alan) => { if (alan === "managed") ayarlariYukle(); });
